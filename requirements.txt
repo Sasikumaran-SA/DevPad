@@ -1,0 +1,9 @@
+flask
+python-dotenv  # For loading environment variables from .env file
+flask-sqlalchemy
+flask-migrate  # For database migrations
+psycopg2-binary # PostgreSQL driver (use psycopg2 in production)
+flask-wtf
+email-validator # For email validation in forms
+flask-login
+werkzeug      # For password hashing
