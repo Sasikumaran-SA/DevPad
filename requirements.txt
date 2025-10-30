@@ -8,4 +8,3 @@ email-validator # For email validation in forms
 flask-login
 werkzeug      # For password hashing
 gunicorn
-psycopg2
