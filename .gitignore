@@ -1,0 +1,28 @@
+# --- Environment Files ---
+# NEVER commit your secrets file!
+.env
+
+# --- Python ---
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Virtual Environment ---
+# The 'venv' folder you created on your server
+# (You might use a different name locally like venv, .venv, env)
+venv/
+.venv/
+env/
+
+# --- Flask ---
+# Flask-Migrate database
+migrations/
+
+# --- Other ---
+# Instance folder (can contain database files)
+instance/
+
+# Operating System files
+.DS_Store
+Thumbs.db

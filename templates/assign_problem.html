@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="w-full max-w-2xl mx-auto bg-white rounded-lg shadow-md p-8">
+    <h2 class="text-2xl font-bold text-gray-800 mb-2">Manage Assignments</h2>
+    <h3 class="text-xl text-blue-600 mb-6">Problem: {{ problem.title }}</h3>
+    
+    <form action="" method="post" novalidate>
+        {{ form.hidden_tag() }}
+        
+        <div class="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div class="flex items-center">
+                {{ form.assign_to_all(class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500") }}
+                {{ form.assign_to_all.label(class="ml-3 block text-gray-700 font-bold") }}
+            </div>
+            {% for error in form.assign_to_all.errors %}
+            <span class="text-red-500 text-xs italic">{{ error }}</span>
+            {% endfor %}
+        </div>
+
+        <div class="mb-6">
+            <label class="block text-gray-700 text-sm font-bold mb-2">Or, Assign to Specific Students:</label>
+            <div class="border rounded-lg p-4 max-h-60 overflow-y-auto space-y-2">
+                {{ form.students() }}
+            </div>
+            {% for error in form.students.errors %}
+            <span class="text-red-500 text-xs italic">{{ error }}</span>
+            {% endfor %}
+        </div>
+        
+        <div class="flex items-center justify-center">
+            {{ form.submit(class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline cursor-pointer") }}
+        </div>
+    </form>
+</div>
+{% endblock %}
