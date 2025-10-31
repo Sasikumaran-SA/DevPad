@@ -7,5 +7,6 @@ flask-wtf
 email-validator # For email validation in forms
 flask-login
 werkzeug      # For password hashing
+gunicorn      # Production server
 boto3         # <-- New: To call AWS Lambda
 requests      # <-- New: Used by Lambda to make callbacks
