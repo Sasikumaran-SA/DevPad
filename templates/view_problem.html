@@ -69,7 +69,13 @@
             <!-- Ace Code Editor -->
             <div id="editor" class="w-full h-96 border rounded-lg"></div>
             <!-- Hidden textarea to hold the code for the form -->
-            {{ form.code(class="hidden") }}
+            
+            <!--
+            !!!! THIS IS THE FIX !!!!
+            We must add id="form-code" to match the JavaScript
+            -->
+            {{ form.code(class="hidden", id="form-code") }}
+            
             {% for error in form.code.errors %}
             <span class="text-red-500 text-xs italic">{{ error }}</span>
             {% endfor %}
@@ -125,3 +131,4 @@
 
 </script>
 {% endblock %}
+
