@@ -1,44 +1,44 @@
-import json
-import boto3
-import os
 from flask import render_template, redirect, url_for, flash, request, Blueprint, current_app, abort, jsonify
 from extensions import db
-from models import User, CodingProblem, UserRole, TestCase, Submission # <-- Import new models
+from models import User, CodingProblem, UserRole, TestCase, CodeSubmission, ProblemAssignment, ScoringType
 from flask_login import login_user, logout_user, current_user, login_required
-from functools import wraps # <-- Import for decorators
+from functools import wraps
+import boto3
+import json
+import os
+from sqlalchemy.orm import joinedload
+from sqlalchemy import func
 
-# --- Form Imports (Updated) ---
+# --- Form Imports ---
 from flask_wtf import FlaskForm
 from wtforms import StringField, PasswordField, SubmitField, IntegerField, RadioField, TextAreaField, SelectMultipleField, BooleanField, FormField, FieldList
 from wtforms.validators import DataRequired, Email, EqualTo, ValidationError, NumberRange, Optional
-from wtforms import widgets # <-- For checkbox widget
-
-
+from wtforms import widgets
 
 # --- Create a Blueprint ---
 main_bp = Blueprint('main', __name__)
 
-# --- Role-Based Decorators (New) ---
+# --- Boto3 Client ---
+lambda_client = boto3.client('lambda')
 
+# --- Role-Based Decorators ---
 def instructor_required(f):
-    """Ensures the current user is an instructor."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.is_instructor:
-            abort(403) # Forbidden
+            abort(403)
         return f(*args, **kwargs)
     return decorated_function
 
 def student_required(f):
-    """Ensures the current user is a student."""
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user.is_authenticated or not current_user.is_student:
-            abort(403) # Forbidden
+            abort(403)
         return f(*args, **kwargs)
     return decorated_function
 
-# --- Form Definitions (Updated) ---
+# --- Form Definitions ---
 
 class LoginForm(FlaskForm):
     username = StringField('Email (Username)', validators=[DataRequired(), Email()])
@@ -46,18 +46,11 @@ class LoginForm(FlaskForm):
     submit = SubmitField('Sign In')
 
 class RegistrationForm(FlaskForm):
-    """
-    Form for new user registration (Updated).
-    """
     name = StringField('Full Name', validators=[DataRequired()])
     username = StringField('Email (Username)', validators=[DataRequired(), Email()])
-    age = IntegerField('Age', validators=[DataRequired(), NumberRange(min=13, max=120, message="You must be at least 13 years old.")])
+    age = IntegerField('Age', validators=[DataRequired(), NumberRange(min=13, max=120)])
     password = PasswordField('Password', validators=[DataRequired()])
-    confirm_password = PasswordField(
-        'Confirm Password', 
-        validators=[DataRequired(), EqualTo('password', message='Passwords must match.')]
-    )
-    # --- New: Role selection field ---
+    confirm_password = PasswordField('Confirm Password', validators=[DataRequired(), EqualTo('password')])
     role = RadioField('Register as:', 
         choices=[(UserRole.STUDENT.value, 'Student'), (UserRole.INSTRUCTOR.value, 'Instructor')],
         validators=[DataRequired()],
@@ -68,45 +61,44 @@ class RegistrationForm(FlaskForm):
     def validate_username(self, username):
         user = User.query.filter_by(username=username.data).first()
         if user:
-            raise ValidationError('That email is already in use. Please choose a different one.')
+            raise ValidationError('That email is already in use.')
 
-# --- New Forms ---
+# --- New Dynamic Forms for Test Cases ---
 
-class TestCaseForm(FlaskForm):                                                      ####
-    """Sub-form for a single test case."""
-    public_input = TextAreaField('Public Input', render_kw={'rows': 3})
-    public_output = TextAreaField('Public Output', render_kw={'rows': 3})
-    hidden_input = TextAreaField('Hidden Input', validators=[Optional()], render_kw={'rows': 3})
-    hidden_output = TextAreaField('Hidden Output', validators=[Optional()], render_kw={'rows': 3})
+class PublicTestCaseForm(FlaskForm):
+    """Sub-form for a single public test case."""
+    input_data = TextAreaField('Input', validators=[Optional()])
+    expected_output = TextAreaField('Expected Output', validators=[Optional()])
 
-# class CodingProblemForm(FlaskForm):
-#     """Form for instructors to create a new coding problem."""
-#     title = StringField('Problem Title', validators=[DataRequired()])
-#     description = TextAreaField('Problem Description', validators=[DataRequired()])
-#     submit = SubmitField('Create Problem')
+class PrivateTestCaseForm(FlaskForm):
+    """Sub-form for a single private test case."""
+    input_data = TextAreaField('Input', validators=[DataRequired()])
+    expected_output = TextAreaField('Expected Output', validators=[DataRequired()])
+    score = IntegerField('Score', validators=[Optional(), NumberRange(min=0)])
 
-class CodingProblemForm(FlaskForm):                                                  ####
-    """Form for instructors to create a new coding problem."""
+class CodingProblemForm(FlaskForm):
+    """Main form for creating/editing a problem."""
     title = StringField('Problem Title', validators=[DataRequired()])
     description = TextAreaField('Problem Description', validators=[DataRequired()])
+    is_open = BooleanField('Accepting Submissions', default=True)
     
-    # --- New: Language Selection ---
-    allowed_languages = SelectMultipleField(
-        'Allowed Languages',
-        choices=[('python', 'Python'), ('c', 'C (coming soon)'), ('cpp', 'C++ (coming soon)')],
-        validators=[DataRequired()],
-        widget=widgets.ListWidget(prefix_label=False), 
-        option_widget=widgets.CheckboxInput()
+    scoring_type = RadioField('Scoring for Private Test Cases',
+        choices=[(ScoringType.EQUAL.value, 'Distribute Total Score Equally'), 
+                 (ScoringType.CUSTOM.value, 'Set Custom Score per Test Case')],
+        default=ScoringType.EQUAL.value,
+        validators=[DataRequired()]
+    )
+    total_score = IntegerField('Total Score (if distributed equally)', 
+        default=100, 
+        validators=[Optional(), NumberRange(min=0)]
     )
     
-    # --- New: Dynamic Test Cases ---
-    test_cases = FieldList(FormField(TestCaseForm), min_entries=1)
+    public_test_cases = FieldList(FormField(PublicTestCaseForm), min_entries=1)
+    private_test_cases = FieldList(FormField(PrivateTestCaseForm), min_entries=1)
     
-    submit = SubmitField('Create Problem')
+    submit = SubmitField('Save Problem')
 
 class AssignmentForm(FlaskForm):
-    """Form for an instructor to assign a problem to students."""
-    # We will populate choices dynamically in the route
     students = SelectMultipleField('Assign to Specific Students', coerce=int,
         widget=widgets.ListWidget(prefix_label=False), 
         option_widget=widgets.CheckboxInput()
@@ -114,73 +106,477 @@ class AssignmentForm(FlaskForm):
     assign_to_all = BooleanField('Assign to ALL Students')
     submit = SubmitField('Update Assignments')
 
-# --- New: Submission Form (for student) ---
 class SubmissionForm(FlaskForm):
-    code = TextAreaField('Your Code', validators=[DataRequired()])
-    language = RadioField('Language', choices=[], validators=[DataRequired()])
+    # Hard-coded to Python for now as Lambda only supports that
+    language = RadioField('Language', 
+        choices=[('python', 'Python')], 
+        default='python', 
+        validators=[DataRequired()]
+    )
+    code = TextAreaField('Code', validators=[DataRequired()])
     submit = SubmitField('Run Code')
 
-# --- Route Definitions (Updated) ---
+# --- Helper Function ---
+def get_user_from_header():
+    """Authenticates a user from an API key in the header."""
+    # This is simple auth. A real app would use secure tokens.
+    sent_key = request.headers.get('X-Api-Key')
+    if not sent_key:
+        return None
+    
+    # We use the EXECUTION_API_KEY as a shared secret
+    if sent_key == current_app.config.get('EXECUTION_API_KEY'):
+        # This is a trusted call from our Lambda
+        return True
+    return None
+
+# --- Main Routes ---
 
 @main_bp.route('/')
 @main_bp.route('/index')
 @login_required
 def index():
-    """
-    Main entry point after login.
-    Redirects user to their specific dashboard based on role.
-    """
     if current_user.is_instructor:
         return redirect(url_for('main.instructor_dashboard'))
     elif current_user.is_student:
         return redirect(url_for('main.student_dashboard'))
-    else:
-        # Fallback, though should not be reached if roles are set
-        return "Role not set.", 403
+    return "Role not set.", 403
 
-# --- New: Student Dashboard ---
+# --- Student Routes ---
+
 @main_bp.route('/student_dashboard')
 @login_required
 @student_required
 def student_dashboard():
-    """Homepage for logged-in students."""
-    assigned_problems = current_user.assigned_problems.all()
-    return render_template('student_dashboard.html', title='My Dashboard', user=current_user, problems=assigned_problems)
+    assignments = current_user.assignments
+    # Eager load problem details to avoid N+1 queries in template
+    assignments = db.session.query(ProblemAssignment)\
+                            .filter_by(user_id=current_user.id)\
+                            .options(joinedload(ProblemAssignment.problem))\
+                            .all()
+    
+    return render_template('student_dashboard.html', title='My Dashboard', user=current_user, assignments=assignments)
 
-# --- New: Instructor Dashboard ---
+@main_bp.route('/problem/<int:problem_id>', methods=['GET', 'POST'])
+@login_required
+@student_required
+def view_problem(problem_id):
+    problem = CodingProblem.query.get_or_404(problem_id)
+    assignment = current_user.get_assignment(problem_id)
+    
+    if not assignment:
+        flash('You are not assigned this problem.', 'danger')
+        return redirect(url_for('main.student_dashboard'))
+
+    form = SubmissionForm()
+    
+    if form.validate_on_submit():
+        if not problem.is_open:
+            flash('This problem is no longer accepting submissions.', 'warning')
+            return redirect(url_for('main.view_problem', problem_id=problem_id))
+
+        submission = CodeSubmission(
+            student=current_user,
+            problem=problem,
+            language=form.language.data,
+            code=form.code.data,
+            status='Pending'
+        )
+        db.session.add(submission)
+        db.session.commit() # Commit to get a submission.id
+
+        # --- Prepare Lambda Payload ---
+        
+        # We must re-calculate the total score in case it's custom
+        private_test_cases = problem.private_test_cases
+        total_possible_score = 0
+        
+        if problem.scoring_type == ScoringType.EQUAL:
+            num_private = len(private_test_cases)
+            score_per_case = (problem.total_score / num_private) if num_private > 0 else 0
+            total_possible_score = problem.total_score
+            
+            # Add score to test case objects for Lambda
+            for tc in private_test_cases:
+                tc.score = score_per_case # This is a transient change, not saved
+        else:
+            # Custom: sum the scores
+            total_possible_score = sum(tc.score for tc in private_test_cases)
+
+        # Combine all test cases for Lambda
+        all_test_cases = [
+            {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': True, 'score': 0}
+            for tc in problem.public_test_cases
+        ] + [
+            {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': False, 'score': tc.score}
+            for tc in private_test_cases
+        ]
+        
+        payload = {
+            'submission_id': submission.id,
+            'language': submission.language,
+            'code': submission.code,
+            'test_cases': all_test_cases,
+            'total_score': total_possible_score, # Send the calculated total score
+            'callback_url': url_for('main.submission_callback', _external=True),
+            'api_key': current_app.config.get('EXECUTION_API_KEY')
+        }
+        
+        try:
+            lambda_client.invoke(
+                FunctionName=current_app.config.get('EXECUTION_LAMBDA_NAME'),
+                InvocationType='Event', # Asynchronous
+                Payload=json.dumps(payload)
+            )
+            flash('Your code has been submitted and is running!', 'info')
+        except Exception as e:
+            current_app.logger.error(f"Lambda invocation failed: {e}")
+            submission.status = 'Error'
+            submission.execution_output = f'Failed to start execution: {e}'
+            db.session.commit()
+            flash('There was an error submitting your code.', 'danger')
+
+        return redirect(url_for('main.view_problem', problem_id=problem_id))
+
+    # --- GET Request ---
+    submissions = CodeSubmission.query.filter_by(
+        user_id=current_user.id, 
+        problem_id=problem_id
+    ).order_by(CodeSubmission.timestamp.desc()).all()
+    
+    best_submission = assignment.best_submission
+
+    return render_template(
+        'view_problem.html', 
+        title=problem.title, 
+        problem=problem, 
+        form=form,
+        submissions=submissions,
+        best_submission=best_submission,
+        assignment=assignment
+    )
+
+@main_bp.route('/submission/<int:submission_id>')
+@login_required
+def view_submission(submission_id):
+    submission = CodeSubmission.query.options(
+        joinedload(CodeSubmission.problem),
+        joinedload(CodeSubmission.student)
+    ).get_or_404(submission_id)
+    
+    # Security check
+    if current_user.is_student and submission.user_id != current_user.id:
+        abort(403)
+    if current_user.is_instructor and submission.problem.creator_id != current_user.id:
+        abort(403)
+        
+    return render_template('view_submission.html', title=f"Submission {submission.id}", submission=submission)
+
+
+# --- Instructor Routes ---
+
 @main_bp.route('/instructor_dashboard')
 @login_required
 @instructor_required
 def instructor_dashboard():
-    """Homepage for logged-in instructors."""
-    created_problems = current_user.created_problems.all()
+    created_problems = current_user.created_problems.order_by(CodingProblem.id.desc()).all()
     return render_template('instructor_dashboard.html', title='Instructor Dashboard', user=current_user, problems=created_problems)
+
+@main_bp.route('/create_problem', methods=['GET', 'POST'])
+@login_required
+@instructor_required
+def create_problem():
+    form = CodingProblemForm()
+    
+    if form.validate_on_submit():
+        problem = CodingProblem(
+            title=form.title.data,
+            description=form.description.data,
+            creator=current_user,
+            is_open=form.is_open.data,
+            scoring_type=ScoringType(form.scoring_type.data),
+            total_score=form.total_score.data if form.scoring_type.data == ScoringType.EQUAL.value else 0
+        )
+        db.session.add(problem)
+
+        # --- Process Test Cases ---
+        
+        # Public
+        for tc_form in form.public_test_cases.data:
+            if tc_form['input_data'] or tc_form['expected_output']: # Only add if not empty
+                problem.test_cases.append(TestCase(
+                    is_public=True,
+                    input_data=tc_form['input_data'],
+                    expected_output=tc_form['expected_output'],
+                    score=0
+                ))
+        
+        # Private
+        custom_total = 0
+        for tc_form in form.private_test_cases.data:
+            # Private TCs must have data
+            if not tc_form['input_data'] or not tc_form['expected_output']:
+                flash('All private test cases must have input and output.', 'danger')
+                return render_template('create_problem.html', title='Create Problem', form=form)
+            
+            score = tc_form['score'] if problem.scoring_type == ScoringType.CUSTOM else 0
+            if problem.scoring_type == ScoringType.CUSTOM:
+                custom_total += score
+
+            problem.test_cases.append(TestCase(
+                is_public=False,
+                input_data=tc_form['input_data'],
+                expected_output=tc_form['expected_output'],
+                score=score
+            ))
+        
+        # If custom, update the problem's total score
+        if problem.scoring_type == ScoringType.CUSTOM:
+            problem.total_score = custom_total
+        
+        try:
+            db.session.commit()
+            flash('New coding problem created!', 'success')
+            return redirect(url_for('main.problem_dashboard', problem_id=problem.id))
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error creating problem: {e}")
+            flash(f'Error creating problem: {e}', 'danger')
+            
+    return render_template('create_problem.html', title='Create Problem', form=form)
+
+
+@main_bp.route('/problem/<int:problem_id>/edit', methods=['GET', 'POST'])
+@login_required
+@instructor_required
+def edit_problem(problem_id):
+    problem = CodingProblem.query.options(joinedload(CodingProblem.test_cases)).get_or_404(problem_id)
+    if problem.creator_id != current_user.id:
+        abort(403)
+
+    form = CodingProblemForm(obj=problem)
+
+    if form.validate_on_submit():
+        # Update main problem fields
+        problem.title = form.title.data
+        problem.description = form.description.data
+        problem.is_open = form.is_open.data
+        problem.scoring_type = ScoringType(form.scoring_type.data)
+        problem.total_score = form.total_score.data if problem.scoring_type == ScoringType.EQUAL else 0
+
+        # --- Rebuild Test Cases (Delete and Recreate) ---
+        # This is simpler than trying to diff the changes
+        
+        # Delete old test cases
+        for tc in problem.test_cases:
+            db.session.delete(tc)
+        
+        problem.test_cases = [] # Clear the list
+        
+        # Add Public
+        for tc_form in form.public_test_cases.data:
+            if tc_form['input_data'] or tc_form['expected_output']:
+                problem.test_cases.append(TestCase(
+                    is_public=True,
+                    input_data=tc_form['input_data'],
+                    expected_output=tc_form['expected_output'],
+                    score=0
+                ))
+        
+        # Add Private
+        custom_total = 0
+        for tc_form in form.private_test_cases.data:
+            if not tc_form['input_data'] or not tc_form['expected_output']:
+                flash('All private test cases must have input and output.', 'danger')
+                return render_template('create_problem.html', title='Edit Problem', form=form, problem=problem)
+            
+            score = tc_form['score'] if problem.scoring_type == ScoringType.CUSTOM else 0
+            if problem.scoring_type == ScoringType.CUSTOM:
+                custom_total += (score or 0)
+
+            problem.test_cases.append(TestCase(
+                is_public=False,
+                input_data=tc_form['input_data'],
+                expected_output=tc_form['expected_output'],
+                score=score or 0
+            ))
+            
+        if problem.scoring_type == ScoringType.CUSTOM:
+            problem.total_score = custom_total
+            
+        try:
+            db.session.commit()
+            flash('Problem updated successfully!', 'success')
+            return redirect(url_for('main.problem_dashboard', problem_id=problem.id))
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error updating problem: {e}")
+            flash(f'Error updating problem: {e}', 'danger')
+
+    elif request.method == 'GET':
+        # Populate form with existing data
+        form.title.data = problem.title
+        form.description.data = problem.description
+        form.is_open.data = problem.is_open
+        form.scoring_type.data = problem.scoring_type.value
+        form.total_score.data = problem.total_score
+
+        # Clear default empty fields
+        form.public_test_cases.pop_entry()
+        form.private_test_cases.pop_entry()
+        
+        # Populate test cases
+        for tc in problem.public_test_cases:
+            form.public_test_cases.append_entry(tc)
+        for tc in problem.private_test_cases:
+            form.private_test_cases.append_entry(tc)
+        
+        # Ensure at least one of each
+        if not form.public_test_cases:
+            form.public_test_cases.append_entry()
+        if not form.private_test_cases:
+            form.private_test_cases.append_entry()
+
+
+    return render_template('create_problem.html', title='Edit Problem', form=form, problem=problem)
+
+@main_bp.route('/problem/<int:problem_id>/assign', methods=['GET', 'POST'])
+@login_required
+@instructor_required
+def assign_problem(problem_id):
+    problem = CodingProblem.query.get_or_404(problem_id)
+    if problem.creator_id != current_user.id:
+        abort(403)
+
+    form = AssignmentForm()
+    
+    all_students = User.query.filter_by(role=UserRole.STUDENT).all()
+    form.students.choices = [(s.id, s.name) for s in all_students]
+
+    if form.validate_on_submit():
+        if form.assign_to_all.data:
+            selected_students = all_students
+        else:
+            selected_student_ids = form.students.data
+            selected_students = User.query.filter(User.id.in_(selected_student_ids)).all()
+        
+        # --- Sync Assignments ---
+        current_assignments = {pa.user_id: pa for pa in problem.assignments}
+        selected_student_ids = {s.id for s in selected_students}
+        
+        # Add new assignments
+        for student_id in selected_student_ids:
+            if student_id not in current_assignments:
+                new_assignment = ProblemAssignment(student=User.query.get(student_id), problem=problem)
+                db.session.add(new_assignment)
+                
+        # Remove old assignments
+        for student_id, assignment in current_assignments.items():
+            if student_id not in selected_student_ids:
+                db.session.delete(assignment)
+        
+        try:
+            db.session.commit()
+            flash(f'Assignments for "{problem.title}" updated!', 'success')
+            return redirect(url_for('main.problem_dashboard', problem_id=problem.id))
+        except Exception as e:
+            db.session.rollback()
+            current_app.logger.error(f"Error assigning problem: {e}")
+            flash(f'Error updating assignments: {e}', 'danger')
+
+    elif request.method == 'GET':
+        # Pre-populate the form
+        assigned_student_ids = [pa.user_id for pa in problem.assignments]
+        form.students.data = assigned_student_ids
+
+    return render_template('assign_problem.html', title='Assign Problem', form=form, problem=problem)
+
+@main_bp.route('/problem/<int:problem_id>/dashboard')
+@login_required
+@instructor_required
+def problem_dashboard(problem_id):
+    problem = CodingProblem.query.options(
+        joinedload(ProblemAssignment.student),
+        joinedload(ProblemAssignment.best_submission)
+    ).get_or_404(problem_id)
+    
+    if problem.creator_id != current_user.id:
+        abort(403)
+        
+    assignments = problem.assignments
+    average_score = problem.average_score
+    
+    return render_template(
+        'problem_dashboard.html', 
+        title=f"Dashboard: {problem.title}", 
+        problem=problem,
+        assignments=assignments,
+        average_score=average_score
+    )
+
+# --- API Routes ---
+
+@main_bp.route('/api/submission_callback', methods=['POST'])
+def submission_callback():
+    """
+    API endpoint for the Lambda function to post results back.
+    """
+    # Authenticate the request
+    if not get_user_from_header():
+        abort(403) 
+    
+    data = request.json
+    
+    try:
+        submission_id = data['submission_id']
+        submission = CodeSubmission.query.get(submission_id)
+        
+        if not submission:
+            current_app.logger.warning(f"Callback received for unknown submission ID: {submission_id}")
+            return jsonify({'status': 'error', 'message': 'Submission not found'}), 404
+            
+        # Update submission
+        submission.status = data['status']
+        submission.score_achieved = data['score_achieved']
+        submission.total_score = data['total_score']
+        submission.execution_output = data['output']
+        
+        # --- Update the user's best score ---
+        assignment = ProblemAssignment.query.get((submission.user_id, submission.problem_id))
+        if assignment:
+            if submission.score_achieved > assignment.best_score:
+                assignment.best_score = submission.score_achieved
+                assignment.best_submission_id = submission.id
+        else:
+            current_app.logger.error(f"No assignment found for user {submission.user_id}, problem {submission.problem_id}")
+            
+        db.session.commit()
+        
+        return jsonify({'status': 'success'}), 200
+
+    except Exception as e:
+        db.session.rollback()
+        current_app.logger.error(f"Error in submission_callback: {e}\nData: {data}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+# --- Auth Routes ---
 
 @main_bp.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
-        
     form = LoginForm()
-    
     if form.validate_on_submit():
         user = User.query.filter_by(username=form.username.data).first()
-        
         if user is None or not user.check_password(form.password.data):
             flash('Invalid username or password', 'danger')
             return redirect(url_for('main.login'))
-        
         login_user(user)
-        
-        # --- Updated: Redirect to role-based index ---
         next_page = request.args.get('next')
         if not next_page:
-            # The 'index' route will handle the role-based redirect
             next_page = url_for('main.index')
-            
         flash('Login successful!', 'success')
         return redirect(next_page)
-
     return render_template('login.html', title='Sign In', form=form)
 
 @main_bp.route('/logout')
@@ -193,20 +589,15 @@ def logout():
 def register():
     if current_user.is_authenticated:
         return redirect(url_for('main.index'))
-        
     form = RegistrationForm()
-    
     if form.validate_on_submit():
-        # --- Updated: Create user with role ---
         user = User(
             name=form.name.data,
             username=form.username.data,
             age=form.age.data,
-            # Get the role from the form
             role=UserRole(form.role.data) 
         )
         user.set_password(form.password.data)
-        
         try:
             db.session.add(user)
             db.session.commit()
@@ -216,272 +607,5 @@ def register():
             db.session.rollback()
             flash(f'An error occurred. Could not register user. {e}', 'danger')
             current_app.logger.error(f"Error on registration: {e}")
-
     return render_template('register.html', title='Register', form=form)
 
-# # --- New: Create Problem Route (Instructor) ---
-# @main_bp.route('/create_problem', methods=['GET', 'POST'])
-# @login_required
-# @instructor_required
-# def create_problem():
-#     form = CodingProblemForm()
-#     if form.validate_on_submit():
-#         problem = CodingProblem(
-#             title=form.title.data,
-#             description=form.description.data,
-#             creator=current_user  # Assign the creator
-#         )
-#         try:
-#             db.session.add(problem)
-#             db.session.commit()
-#             flash('New coding problem has been created!', 'success')
-#             return redirect(url_for('main.instructor_dashboard'))
-#         except Exception as e:
-#             db.session.rollback()
-#             flash(f'Error creating problem: {e}', 'danger')
-            
-#     return render_template('create_problem.html', title='Create Problem', form=form)
-
-
-# --- Updated: Create Problem Route (Instructor) ---
-@main_bp.route('/create_problem', methods=['GET', 'POST'])               ####
-@login_required
-@instructor_required
-def create_problem():
-    form = CodingProblemForm()
-    
-    if form.validate_on_submit():
-        problem = CodingProblem(
-            title=form.title.data,
-            description=form.description.data,
-            # Store selected languages as a JSON string
-            allowed_languages=json.dumps(form.allowed_languages.data),
-            creator=current_user
-        )
-        
-        # Add test cases
-        for test_case_form in form.test_cases.data:
-            test_case = TestCase(
-                public_input=test_case_form['public_input'],
-                public_output=test_case_form['public_output'],
-                hidden_input=test_case_form['hidden_input'],
-                hidden_output=test_case_form['hidden_output'],
-                problem=problem
-            )
-            db.session.add(test_case)
-            
-        try:
-            db.session.add(problem)
-            db.session.commit()
-            flash('New coding problem has been created!', 'success')
-            return redirect(url_for('main.instructor_dashboard'))
-        except Exception as e:
-            db.session.rollback()
-            flash(f'Error creating problem: {e}', 'danger')
-            current_app.logger.error(f"Error creating problem: {e}")
-            
-    return render_template('create_problem.html', title='Create Problem', form=form)
-
-# --- New: Assign Problem Route (Instructor) ---
-@main_bp.route('/problem/<int:problem_id>/assign', methods=['GET', 'POST'])
-@login_required
-@instructor_required
-def assign_problem(problem_id):
-    problem = CodingProblem.query.get_or_404(problem_id)
-    
-    # Ensure instructor can only assign problems they created
-    if problem.creator_id != current_user.id:
-        abort(403)
-
-    form = AssignmentForm()
-    
-    # Get all students and set them as choices for the form field
-    all_students = User.query.filter_by(role=UserRole.STUDENT).all()
-    form.students.choices = [(s.id, s.name) for s in all_students]
-
-    if form.validate_on_submit():
-        if form.assign_to_all.data:
-            # Assign to all students
-            problem.assigned_students = all_students
-        else:
-            # Assign to selected students
-            selected_student_ids = form.students.data
-            selected_students = User.query.filter(User.id.in_(selected_student_ids)).all()
-            problem.assigned_students = selected_students
-        
-        try:
-            db.session.commit()
-            flash(f'Assignments for "{problem.title}" updated!', 'success')
-            return redirect(url_for('main.instructor_dashboard'))
-        except Exception as e:
-            db.session.rollback()
-            flash(f'Error updating assignments: {e}', 'danger')
-
-    elif request.method == 'GET':
-        # Pre-populate the form with currently assigned students
-        assigned_student_ids = [s.id for s in problem.assigned_students]
-        form.students.data = assigned_student_ids
-
-    return render_template('assign_problem.html', title='Assign Problem', form=form, problem=problem)
-
-
-# # --- New: View Problem Route (Student) ---
-# @main_bp.route('/problem/<int:problem_id>')
-# @login_required
-# @student_required
-# def view_problem(problem_id):
-#     problem = CodingProblem.query.get_or_404(problem_id)
-    
-#     # Check if this student is actually assigned this problem
-#     if problem not in current_user.assigned_problems:
-#         flash('You are not authorized to view this problem.', 'danger')
-#         return redirect(url_for('main.student_dashboard'))
-        
-#     return render_template('view_problem.html', title=problem.title, problem=problem)
-
-# --- Updated: View Problem Route (Student) ---
-@main_bp.route('/problem/<int:problem_id>', methods=['GET', 'POST'])                    ####
-@login_required
-@student_required
-def view_problem(problem_id):
-    problem = CodingProblem.query.get_or_404(problem_id)
-    
-    if problem not in current_user.assigned_problems:
-        flash('You are not authorized to view this problem.', 'danger')
-        return redirect(url_for('main.student_dashboard'))
-    
-    form = SubmissionForm()
-    # Dynamically set language choices
-    form.language.choices = [(lang, lang.capitalize()) for lang in problem.languages_list]
-    
-    if form.validate_on_submit():
-        # --- This is where we call the Lambda ---
-        try:
-            # 1. Create a "Pending" submission
-            submission = Submission(
-                code=form.code.data,
-                language=form.language.data,
-                student=current_user,
-                problem=problem,
-                status='Pending'
-            )
-            db.session.add(submission)
-            db.session.commit()
-
-            # 2. Get Lambda/API Gateway info from environment
-            api_url = os.environ.get('EXECUTION_API_URL')
-            api_key = os.environ.get('EXECUTION_API_KEY')
-            
-            if not api_url or not api_key:
-                flash('Code execution service is not configured. Please contact the instructor.', 'danger')
-                return redirect(url_for('main.view_problem', problem_id=problem_id))
-            
-            # 3. Get test cases
-            test_cases = [{
-                'public_input': tc.public_input,
-                'public_output': tc.public_output,
-                'hidden_input': tc.hidden_input,
-                'hidden_output': tc.hidden_output
-            } for tc in problem.test_cases]
-            
-            # 4. Prepare payload for Lambda
-            payload = {
-                'submission_id': submission.id,
-                'language': submission.language,
-                'code': submission.code,
-                'test_cases': test_cases,
-                # This is the URL Lambda will call when done
-                'callback_url': url_for('main.submission_callback', _external=True),
-                'api_key': api_key # This key proves the call is from our Lambda
-            }
-            
-            # 5. Invoke the Lambda asynchronously using boto3
-            # We use 'Event' to invoke asynchronously (fire-and-forget)
-            lambda_client = boto3.client('lambda', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
-            
-            lambda_client.invoke(
-                FunctionName=os.environ.get('EXECUTION_LAMBDA_NAME'),
-                InvocationType='Event', # Asynchronous
-                Payload=json.dumps(payload)
-            )
-
-            flash('Submission received! Your code is being tested.', 'info')
-            return redirect(url_for('main.view_submission', submission_id=submission.id))
-
-        except Exception as e:
-            db.session.rollback()
-            flash(f'Error submitting code: {e}', 'danger')
-            current_app.logger.error(f"Error on submission: {e}")
-
-    # On GET request, populate form with choices
-    if not form.language.data:
-        form.language.data = problem.languages_list[0]
-        
-    return render_template('view_problem.html', title=problem.title, problem=problem, form=form)
-
-# --- New: Callback route for Lambda ---
-@main_bp.route('/api/submission/callback', methods=['POST'])
-def submission_callback():
-    """
-    This secure, internal-only endpoint is called by our Lambda
-    to update the status of a submission.
-    """
-    try:
-        data = request.json
-        
-        # 1. Authenticate the Lambda
-        expected_key = os.environ.get('EXECUTION_API_KEY')
-        received_key = data.get('api_key')
-        
-        if not expected_key or received_key != expected_key:
-            abort(403) # Forbidden
-            
-        # 2. Get submission
-        submission_id = data.get('submission_id')
-        submission = Submission.query.get(submission_id)
-        
-        if not submission:
-            return jsonify({'status': 'error', 'message': 'Submission not found'}), 404
-            
-        # 3. Update status and output
-        submission.status = data.get('status') # 'Passed' or 'Failed'
-        submission.output = data.get('output') # Detailed log
-        
-        db.session.commit()
-        
-        return jsonify({'status': 'success'})
-
-    except Exception as e:
-        current_app.logger.error(f"Callback error: {e}")
-        db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
-
-# --- New: View Submission Result route ---
-@main_bp.route('/submission/<int:submission_id>')
-@login_required
-def view_submission(submission_id):
-    submission = Submission.query.get_or_404(submission_id)
-    
-    # Student can only see their own, Instructor can see any for their problem
-    if (current_user.is_student and submission.student_id != current_user.id):
-        abort(403)
-    if (current_user.is_instructor and submission.problem.creator_id != current_user.id):
-        abort(403)
-        
-    return render_template('view_submission.html', title=f'Submission {submission.id}', submission=submission)
-
-# --- New: API route for student to poll for results ---
-@main_bp.route('/api/submission/<int:submission_id>/status')
-@login_required
-def get_submission_status(submission_id):
-    submission = Submission.query.get_or_404(submission_id)
-    
-    if (submission.student_id != current_user.id):
-         abort(403)
-         
-    return jsonify({
-        'id': submission.id,
-        'status': submission.status,
-        'output': submission.output,
-        'timestamp': submission.timestamp.isoformat()
-    })

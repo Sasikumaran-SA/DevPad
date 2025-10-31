@@ -26,3 +26,5 @@ instance/
 # Operating System files
 .DS_Store
 Thumbs.db
+
+lambda_function.py

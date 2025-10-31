@@ -3,23 +3,52 @@
 {% block content %}
 <div class="bg-white rounded-lg shadow-md p-8">
     <h1 class="text-3xl font-bold text-gray-800 mb-4">Welcome, {{ user.name }}!</h1>
-    <p class="text-gray-600">You are logged in as a Student.</p>
+    
+    <!-- Overall Stats -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="bg-blue-50 p-4 rounded-lg shadow-inner text-center">
+            <span class="text-2xl font-bold text-blue-700">{{ user.problems_attempted_count }}</span>
+            <p class="text-gray-600">Problems Attempted</p>
+        </div>
+        <div class="bg-green-50 p-4 rounded-lg shadow-inner text-center">
+            <span class="text-2xl font-bold text-green-700">{{ user.total_score_achieved }} / {{ user.total_score_possible }}</span>
+            <p class="text-gray-600">Total Score</p>
+        </div>
+        <div class="bg-indigo-50 p-4 rounded-lg shadow-inner text-center">
+            <span class="text-2xl font-bold text-indigo-700">{{ "%.1f"|format(user.overall_percentage) }}%</span>
+            <p class="text-gray-600">Overall Percentage</p>
+        </div>
+    </div>
     
     <hr class="my-6">
 
     <h2 class="text-2xl font-semibold text-gray-700 mb-4">Your Assigned Problems</h2>
     
-    {% if problems %}
+    {% if assignments %}
         <ul class="space-y-4">
-            {% for problem in problems %}
+            {% for assignment in assignments %}
                 <li class="border border-gray-200 rounded-lg p-4 flex justify-between items-center">
                     <div>
-                        <h3 class="text-xl font-bold text-blue-600">{{ problem.title }}</h3>
-                        <p class="text-sm text-gray-500">Created by: {{ problem.creator.name }}</p>
+                        <h3 class="text-xl font-bold text-blue-600">{{ assignment.problem.title }}</h3>
+                        <p class="text-sm text-gray-500">
+                            From: {{ assignment.problem.creator.name }}
+                            <span class="mx-2">|</span>
+                            Status: 
+                            {% if assignment.problem.is_open %}
+                                <span class="text-green-600 font-semibold">Open</span>
+                            {% else %}
+                                <span class="text-red-600 font-semibold">Closed</span>
+                            {% endif %}
+                        </p>
                     </div>
-                    <a href="{{ url_for('main.view_problem', problem_id=problem.id) }}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
-                        View Problem
-                    </a>
+                    <div class="text-right">
+                        <span class="text-lg font-bold text-gray-700">
+                            {{ assignment.best_score }} / {{ assignment.problem.calculated_total_score }}
+                        </span>
+                        <a href="{{ url_for('main.view_problem', problem_id=assignment.problem.id) }}" class="mt-1 block bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                            View Problem
+                        </a>
+                    </div>
                 </li>
             {% endfor %}
         </ul>

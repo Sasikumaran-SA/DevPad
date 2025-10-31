@@ -23,12 +23,26 @@
                     <div>
                         <h3 class="text-xl font-bold text-gray-800">{{ problem.title }}</h3>
                         <p class="text-sm text-gray-500">
-                            Assigned to: {{ problem.assigned_students.count() }} student(s)
+                            Status: 
+                            {% if problem.is_open %}
+                                <span class="text-green-600 font-semibold">Open</span>
+                            {% else %}
+                                <span class="text-red-600 font-semibold">Closed</span>
+                            {% endif %}
+                            <span class="mx-2">|</span>
+                            Assigned to: {{ problem.assignments|length }} student(s)
+                            <span class="mx-2">|</span>
+                            Total Score: {{ problem.calculated_total_score }}
                         </p>
                     </div>
-                    <a href="{{ url_for('main.assign_problem', problem_id=problem.id) }}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg">
-                        Manage Assignments
-                    </a>
+                    <div class="flex space-x-2">
+                        <a href="{{ url_for('main.edit_problem', problem_id=problem.id) }}" class="bg-yellow-500 hover:bg-yellow-600 text-white font-bold py-2 px-3 rounded-lg text-sm">
+                            Edit
+                        </a>
+                        <a href="{{ url_for('main.problem_dashboard', problem_id=problem.id) }}" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-lg text-sm">
+                            View Dashboard
+                        </a>
+                    </div>
                 </li>
             {% endfor %}
         </ul>
