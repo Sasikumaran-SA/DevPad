@@ -2,6 +2,7 @@ import enum
 from extensions import db # Import the db instance from extensions (no app import)
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
+import json
 
 # --- New: Association table for Many-to-Many relationship ---
 # This table links Students (Users) to the CodingProblems they are assigned.
@@ -50,6 +51,9 @@ class User(UserMixin, db.Model):
         lazy='dynamic',
         back_populates='assigned_students'
     )
+
+    # newly added relationship to submissions
+    submissions = db.relationship('Submission', back_populates='student', lazy='dynamic')     ####
     
     # ... existing set_password and check_password methods ...
     def set_password(self, password):
@@ -81,6 +85,8 @@ class CodingProblem(db.Model):
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=False)
     
+    allowed_languages = db.Column(db.String(200), nullable=False, default='["python"]')    #####
+
     # Foreign key to the User (Instructor) who created this
     creator_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
 
@@ -98,6 +104,67 @@ class CodingProblem(db.Model):
         lazy='dynamic',
         back_populates='assigned_problems'
     )
+
+    # --- New: Relationship to TestCases ---
+    test_cases = db.relationship('TestCase', back_populates='problem', cascade='all, delete-orphan')      ##*
+
+    # --- New: Relationship to Submissions ---
+    submissions = db.relationship('Submission', back_populates='problem', cascade='all, delete-orphan')   ##*
     
     def __repr__(self):
         return f'<CodingProblem {self.title}>'
+    
+    @property
+    def languages_list(self):                                                          ## *
+        try:
+            return json.loads(self.allowed_languages)
+        except:
+            return ['python'] # Fallback
+
+# --- New: TestCase Model ---
+class TestCase(db.Model):
+    """
+    Model for storing a single test case (input and expected output).
+    """
+    __tablename__ = 'test_cases'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    public_input = db.Column(db.Text, nullable=True)  # Input shown to student
+    public_output = db.Column(db.Text, nullable=True) # Expected output for public test
+    
+    hidden_input = db.Column(db.Text, nullable=True)   # Hidden input
+    hidden_output = db.Column(db.Text, nullable=True)  # Expected output for hidden test
+    
+    problem_id = db.Column(db.Integer, db.ForeignKey('coding_problems.id'), nullable=False)
+    problem = db.relationship('CodingProblem', back_populates='test_cases')
+    
+    def __repr__(self):
+        return f'<TestCase {self.id} for Problem {self.problem_id}>'
+
+# --- New: Submission Model ---
+class Submission(db.Model):
+    """
+    Model for storing a student's code submission.
+    """
+    __tablename__ = 'submissions'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.Text, nullable=False)
+    language = db.Column(db.String(50), nullable=False)
+    
+    # Status: 'Pending', 'Running', 'Passed', 'Failed'
+    status = db.Column(db.String(50), nullable=False, default='Pending')
+    
+    # Output from the execution
+    output = db.Column(db.Text, nullable=True) 
+    
+    timestamp = db.Column(db.DateTime, index=True, default=db.func.now())
+    
+    student_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
+    problem_id = db.Column(db.Integer, db.ForeignKey('coding_problems.id'), nullable=False)
+    
+    student = db.relationship('User', back_populates='submissions')
+    problem = db.relationship('CodingProblem', back_populates='submissions')
+    
+    def __repr__(self):
+        return f'<Submission {self.id} by {self.student.name}>'

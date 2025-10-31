@@ -26,3 +26,10 @@ class Config:
         
     # Disable modification tracking as it's deprecated and adds overhead
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+
+    # --- New: Execution Service Config ---
+    # These will be loaded from environment variables on the EC2 instance
+    EXECUTION_API_URL = os.environ.get('EXECUTION_API_URL')
+    EXECUTION_API_KEY = os.environ.get('EXECUTION_API_KEY')
+    EXECUTION_LAMBDA_NAME = os.environ.get('EXECUTION_LAMBDA_NAME')
+    AWS_REGION = os.environ.get('AWS_REGION', 'us-east-1')
