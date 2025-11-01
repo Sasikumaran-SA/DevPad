@@ -4,84 +4,130 @@
 <!-- Ace Editor JS -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.33.0/ace.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.33.0/mode-python.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.33.0/mode-c_cpp.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.33.0/theme-monokai.js"></script>
 
-<div class="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-7xl mx-auto">
-    <!-- Problem Description -->
-    <div class="bg-white rounded-lg shadow-md p-8">
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">{{ problem.title }}</h1>
-        <p class="text-sm text-gray-500 mb-6">From: {{ problem.creator.name }}</p>
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-8 max-w-7xl mx-auto">
+    
+    <!-- Left Column: Problem & Submissions -->
+    <div class="bg-white rounded-lg shadow-md p-8 space-y-8">
+        <!-- Problem Description -->
+        <div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">{{ problem.title }}</h1>
+            <p class="text-sm text-gray-500 mb-6">From: {{ problem.creator.name }}</p>
+            
+            <div class="flex justify-between items-center mb-6">
+                <span class="text-lg font-bold text-gray-700">
+                    Your Best Score: 
+                    <span class="text-blue-600">{{ assignment.best_score }} / {{ problem.calculated_total_score }}</span>
+                </span>
+                {% if problem.is_open %}
+                    <span class="px-3 py-1 rounded-full text-sm font-bold bg-green-100 text-green-800">Open</span>
+                {% else %}
+                    <span class="px-3 py-1 rounded-full text-sm font-bold bg-red-100 text-red-800">Closed</span>
+                {% endif %}
+            </div>
 
-        <hr class="my-6">
-        
-        <h2 class="text-2xl font-semibold text-gray-700 mb-4">Problem Description</h2>
-        <div class="prose max-w-none text-gray-800">
-            <pre class="bg-gray-50 p-4 rounded-md font-sans whitespace-pre-wrap">{{ problem.description }}</pre>
-        </div>
+            <hr class="my-6">
+            
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Problem Description</h2>
+            <div class="prose max-w-none text-gray-800">
+                <!-- Use whitespace-pre-wrap to respect newlines and wrap text -->
+                <p class="bg-gray-50 p-4 rounded-md font-sans whitespace-pre-wrap">{{ problem.description }}</p>
+            </div>
 
-        <h2 class="text-2xl font-semibold text-gray-700 mt-6 mb-4">Public Test Cases</h2>
-        {% for tc in problem.test_cases %}
-            {% if tc.public_input or tc.public_output %}
-            <div class="mb-4 p-4 border rounded-lg bg-gray-50">
-                <h4 class="font-bold text-gray-600 mb-2">Test Case {{ loop.index }}</h4>
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-500">Input:</label>
-                        <pre class="bg-white p-2 rounded-md font-mono text-sm">{{ tc.public_input }}</pre>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium text-gray-500">Expected Output:</label>
-                        <pre class="bg-white p-2 rounded-md font-mono text-sm">{{ tc.public_output }}</pre>
+            <!-- 
+                --- THIS IS THE FIX ---
+                Iterate over problem.public_test_cases
+                Use tc.input_data and tc.expected_output
+            -->
+            <h2 class="text-2xl font-semibold text-gray-700 mt-6 mb-4">Public Test Cases</h2>
+            {% for tc in problem.public_test_cases %}
+                <div class="mb-4 p-4 border rounded-lg bg-gray-50">
+                    <h4 class="font-bold text-gray-600 mb-2">Test Case {{ loop.index }}</h4>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">Input:</label>
+                            <pre class="bg-white p-2 rounded-md font-mono text-sm whitespace-pre-wrap">{{ tc.input_data }}</pre>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">Expected Output:</label>
+                            <pre class="bg-white p-2 rounded-md font-mono text-sm whitespace-pre-wrap">{{ tc.expected_output }}</pre>
+                        </div>
                     </div>
                 </div>
-            </div>
-            {% endif %}
-        {% endfor %}
+            {% else %}
+                <p class="text-gray-500">No public test cases for this problem.</p>
+            {% endfor %}
 
-        <a href="{{ url_for('main.student_dashboard') }}" class="mt-8 inline-block text-blue-600 hover:text-blue-800">
-            &larr; Back to Dashboard
-        </a>
+            <a href="{{ url_for('main.student_dashboard') }}" class="mt-8 inline-block text-blue-600 hover:text-blue-800">
+                &larr; Back to Dashboard
+            </a>
+        </div>
+        
+        <!-- Submission History -->
+        <div>
+            <h2 class="text-2xl font-semibold text-gray-700 mb-4">Your Submissions</h2>
+            <div class="space-y-3 max-h-96 overflow-y-auto pr-2">
+                {% for sub in submissions %}
+                <a href="{{ url_for('main.view_submission', submission_id=sub.id) }}" 
+                   class="block p-4 border rounded-lg hover:shadow-md hover:border-blue-500
+                          {% if sub.id == best_submission.id %} border-green-500 bg-green-50 {% else %} bg-white {% endif %}">
+                    <div class="flex justify-between items-center">
+                        <span class="font-bold text-gray-700">Submission #{{ sub.id }}</span>
+                        {% if sub.status == 'Passed' %}
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-green-100 text-green-800">{{ sub.status }}</span>
+                        {% elif sub.status == 'Failed' %}
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800">{{ sub.status }}</span>
+                        {% else %}
+                            <span class="px-2 py-0.5 rounded-full text-xs font-bold bg-yellow-100 text-yellow-800">{{ sub.status }}</span>
+                        {% endif %}
+                    </div>
+                    <p class="text-sm text-gray-500 mt-1">
+                        {{ sub.timestamp.strftime('%Y-%m-%d %H:%M') }}
+                        <span class="mx-2">|</span>
+                        Score: {{ sub.score_achieved or 0 }} / {{ sub.total_score or '?' }}
+                    </p>
+                </a>
+                {% else %}
+                <p class="text-gray-500">You have no submissions for this problem yet.</p>
+                {% endfor %}
+            </div>
+        </div>
     </div>
 
-    <!-- Code Editor and Submission -->
+    <!-- Right Column: Code Editor -->
     <div class="bg-white rounded-lg shadow-md p-8">
         <h2 class="text-2xl font-semibold text-gray-700 mb-4">Your Solution</h2>
         <form action="" method="post" novalidate id="submission-form">
             {{ form.hidden_tag() }}
             
-            <!-- Language Selector -->
             <div class="mb-4">
                 {{ form.language.label(class="block text-gray-700 text-sm font-bold mb-2") }}
                 <div class="flex space-x-4">
                     {% for subfield in form.language %}
                         <div class="flex items-center">
-                            {{ subfield(class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 language-radio") }}
+                            {{ subfield(class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500") }}
                             {{ subfield.label(class="ml-2 text-gray-700") }}
                         </div>
                     {% endfor %}
                 </div>
-                {% for error in form.language.errors %}
-                <span class="text-red-500 text-xs italic">{{ error }}</span>
-                {% endfor %}
             </div>
 
             <!-- Ace Code Editor -->
             <div id="editor" class="w-full h-96 border rounded-lg"></div>
             <!-- Hidden textarea to hold the code for the form -->
-            
-            <!--
-            !!!! THIS IS THE FIX !!!!
-            We must add id="form-code" to match the JavaScript
-            -->
-            {{ form.code(class="hidden", id="form-code") }}
+            {{ form.code(class="hidden", id="code") }}
             
             {% for error in form.code.errors %}
             <span class="text-red-500 text-xs italic">{{ error }}</span>
             {% endfor %}
             
             <div class="flex items-center justify-center mt-6">
-                {{ form.submit(class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline cursor-pointer") }}
+                {% if problem.is_open %}
+                    {{ form.submit(class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline cursor-pointer") }}
+                {% else %}
+                    <span class="bg-gray-300 text-gray-500 font-bold py-3 px-6 rounded-lg">Submissions Closed</span>
+                {% endif %}
             </div>
         </form>
     </div>
@@ -91,42 +137,19 @@
     // --- Initialize Ace Editor ---
     var editor = ace.edit("editor");
     editor.setTheme("ace/theme/monokai");
-    editor.session.setMode("ace/mode/python"); // Default
+    editor.session.setMode("ace/mode/python");
     editor.setFontSize(14);
     
     // Sync editor content with hidden textarea on change
+    const codeTextarea = document.getElementById('code');
     editor.session.on('change', function() {
-        document.getElementById('form-code').value = editor.getValue();
+        codeTextarea.value = editor.getValue();
     });
-
-    // --- Handle Language Change ---
-    const langRadios = document.querySelectorAll('.language-radio');
-    const langMap = {
-        'python': 'ace/mode/python',
-        'c': 'ace/mode/c_cpp',
-        'cpp': 'ace/mode/c_cpp'
-    };
-    
-    function setEditorMode(lang) {
-        const mode = langMap[lang] || 'ace/mode/python';
-        editor.session.setMode(mode);
-    }
-
-    langRadios.forEach(radio => {
-        radio.addEventListener('change', function() {
-            setEditorMode(this.value);
-        });
-    });
-
-    // Set initial mode
-    const initialLang = document.querySelector('.language-radio:checked').value;
-    setEditorMode(initialLang);
 
     // --- Sync form submit ---
     const form = document.getElementById('submission-form');
     form.addEventListener('submit', function() {
-        // Ensure hidden textarea is up-to-date
-        document.getElementById('form-code').value = editor.getValue();
+        codeTextarea.value = editor.getValue();
     });
 
 </script>

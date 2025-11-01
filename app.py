@@ -2,7 +2,7 @@ import os
 from flask import Flask
 from config import Config
 from extensions import db, migrate, login_manager
-# ...existing code...
+from models import UserRole, ScoringType  # <-- NEW: Import your enums
 
 # Configure login manager defaults
 login_manager.login_view = 'main.login'
@@ -32,6 +32,16 @@ def create_app(config_class=Config):
     # Register the blueprint with the app
     app.register_blueprint(main_bp)
     
+    # --- NEW: Context Processor to inject enums into all templates ---
+    @app.context_processor
+    def inject_enums():
+        """Makes enums available to all Jinja templates."""
+        return dict(
+            UserRole=UserRole,
+            ScoringType=ScoringType
+        )
+    # -----------------------------------------------------------------
+    
     with app.app_context():
         # Import models so Flask-Migrate can see them
         import models
@@ -54,4 +64,3 @@ if __name__ == '__main__':
     # Run the app
     # Use 0.0.0.0 to make it accessible on your network, not just localhost
     app.run(debug=True, host='0.0.0.0', port=port)
-# ...existing code...

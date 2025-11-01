@@ -3,7 +3,7 @@ from extensions import db
 from models import User, CodingProblem, UserRole, TestCase, CodeSubmission, ProblemAssignment, ScoringType
 from flask_login import login_user, logout_user, current_user, login_required
 from functools import wraps
-import boto3
+import boto3  # <-- Keep this import
 import json
 import os
 from sqlalchemy.orm import joinedload
@@ -19,7 +19,7 @@ from wtforms import widgets
 main_bp = Blueprint('main', __name__)
 
 # --- Boto3 Client ---
-lambda_client = boto3.client('lambda')
+# lambda_client = boto3.client('lambda') # <-- BUG WAS HERE! We moved it.
 
 # --- Role-Based Decorators ---
 def instructor_required(f):
@@ -119,14 +119,11 @@ class SubmissionForm(FlaskForm):
 # --- Helper Function ---
 def get_user_from_header():
     """Authenticates a user from an API key in the header."""
-    # This is simple auth. A real app would use secure tokens.
     sent_key = request.headers.get('X-Api-Key')
     if not sent_key:
         return None
     
-    # We use the EXECUTION_API_KEY as a shared secret
     if sent_key == current_app.config.get('EXECUTION_API_KEY'):
-        # This is a trusted call from our Lambda
         return True
     return None
 
@@ -149,7 +146,6 @@ def index():
 @student_required
 def student_dashboard():
     assignments = current_user.assignments
-    # Eager load problem details to avoid N+1 queries in template
     assignments = db.session.query(ProblemAssignment)\
                             .filter_by(user_id=current_user.id)\
                             .options(joinedload(ProblemAssignment.problem))\
@@ -186,8 +182,6 @@ def view_problem(problem_id):
         db.session.commit() # Commit to get a submission.id
 
         # --- Prepare Lambda Payload ---
-        
-        # We must re-calculate the total score in case it's custom
         private_test_cases = problem.private_test_cases
         total_possible_score = 0
         
@@ -196,14 +190,11 @@ def view_problem(problem_id):
             score_per_case = (problem.total_score / num_private) if num_private > 0 else 0
             total_possible_score = problem.total_score
             
-            # Add score to test case objects for Lambda
             for tc in private_test_cases:
-                tc.score = score_per_case # This is a transient change, not saved
+                tc.score = score_per_case 
         else:
-            # Custom: sum the scores
             total_possible_score = sum(tc.score for tc in private_test_cases)
 
-        # Combine all test cases for Lambda
         all_test_cases = [
             {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': True, 'score': 0}
             for tc in problem.public_test_cases
@@ -217,12 +208,16 @@ def view_problem(problem_id):
             'language': submission.language,
             'code': submission.code,
             'test_cases': all_test_cases,
-            'total_score': total_possible_score, # Send the calculated total score
+            'total_score': total_possible_score, 
             'callback_url': url_for('main.submission_callback', _external=True),
             'api_key': current_app.config.get('EXECUTION_API_KEY')
         }
         
         try:
+            # --- FIX IS HERE ---
+            # Create the client *inside* the route, not globally.
+            lambda_client = boto3.client('lambda') 
+            
             lambda_client.invoke(
                 FunctionName=current_app.config.get('EXECUTION_LAMBDA_NAME'),
                 InvocationType='Event', # Asynchronous
@@ -298,12 +293,10 @@ def create_problem():
             total_score=form.total_score.data if form.scoring_type.data == ScoringType.EQUAL.value else 0
         )
         db.session.add(problem)
-
-        # --- Process Test Cases ---
         
         # Public
         for tc_form in form.public_test_cases.data:
-            if tc_form['input_data'] or tc_form['expected_output']: # Only add if not empty
+            if tc_form['input_data'] or tc_form['expected_output']: 
                 problem.test_cases.append(TestCase(
                     is_public=True,
                     input_data=tc_form['input_data'],
@@ -314,23 +307,21 @@ def create_problem():
         # Private
         custom_total = 0
         for tc_form in form.private_test_cases.data:
-            # Private TCs must have data
             if not tc_form['input_data'] or not tc_form['expected_output']:
                 flash('All private test cases must have input and output.', 'danger')
                 return render_template('create_problem.html', title='Create Problem', form=form)
             
             score = tc_form['score'] if problem.scoring_type == ScoringType.CUSTOM else 0
             if problem.scoring_type == ScoringType.CUSTOM:
-                custom_total += score
+                custom_total += (score or 0) # Handle None
 
             problem.test_cases.append(TestCase(
                 is_public=False,
                 input_data=tc_form['input_data'],
                 expected_output=tc_form['expected_output'],
-                score=score
+                score=score or 0
             ))
         
-        # If custom, update the problem's total score
         if problem.scoring_type == ScoringType.CUSTOM:
             problem.total_score = custom_total
         
@@ -357,23 +348,17 @@ def edit_problem(problem_id):
     form = CodingProblemForm(obj=problem)
 
     if form.validate_on_submit():
-        # Update main problem fields
         problem.title = form.title.data
         problem.description = form.description.data
         problem.is_open = form.is_open.data
         problem.scoring_type = ScoringType(form.scoring_type.data)
         problem.total_score = form.total_score.data if problem.scoring_type == ScoringType.EQUAL else 0
 
-        # --- Rebuild Test Cases (Delete and Recreate) ---
-        # This is simpler than trying to diff the changes
-        
-        # Delete old test cases
         for tc in problem.test_cases:
             db.session.delete(tc)
         
-        problem.test_cases = [] # Clear the list
+        problem.test_cases = [] 
         
-        # Add Public
         for tc_form in form.public_test_cases.data:
             if tc_form['input_data'] or tc_form['expected_output']:
                 problem.test_cases.append(TestCase(
@@ -383,7 +368,6 @@ def edit_problem(problem_id):
                     score=0
                 ))
         
-        # Add Private
         custom_total = 0
         for tc_form in form.private_test_cases.data:
             if not tc_form['input_data'] or not tc_form['expected_output']:
@@ -414,29 +398,24 @@ def edit_problem(problem_id):
             flash(f'Error updating problem: {e}', 'danger')
 
     elif request.method == 'GET':
-        # Populate form with existing data
         form.title.data = problem.title
         form.description.data = problem.description
         form.is_open.data = problem.is_open
         form.scoring_type.data = problem.scoring_type.value
         form.total_score.data = problem.total_score
 
-        # Clear default empty fields
         form.public_test_cases.pop_entry()
         form.private_test_cases.pop_entry()
         
-        # Populate test cases
         for tc in problem.public_test_cases:
             form.public_test_cases.append_entry(tc)
         for tc in problem.private_test_cases:
             form.private_test_cases.append_entry(tc)
         
-        # Ensure at least one of each
         if not form.public_test_cases:
             form.public_test_cases.append_entry()
         if not form.private_test_cases:
             form.private_test_cases.append_entry()
-
 
     return render_template('create_problem.html', title='Edit Problem', form=form, problem=problem)
 
@@ -460,17 +439,14 @@ def assign_problem(problem_id):
             selected_student_ids = form.students.data
             selected_students = User.query.filter(User.id.in_(selected_student_ids)).all()
         
-        # --- Sync Assignments ---
         current_assignments = {pa.user_id: pa for pa in problem.assignments}
         selected_student_ids = {s.id for s in selected_students}
         
-        # Add new assignments
         for student_id in selected_student_ids:
             if student_id not in current_assignments:
                 new_assignment = ProblemAssignment(student=User.query.get(student_id), problem=problem)
                 db.session.add(new_assignment)
                 
-        # Remove old assignments
         for student_id, assignment in current_assignments.items():
             if student_id not in selected_student_ids:
                 db.session.delete(assignment)
@@ -485,7 +461,6 @@ def assign_problem(problem_id):
             flash(f'Error updating assignments: {e}', 'danger')
 
     elif request.method == 'GET':
-        # Pre-populate the form
         assigned_student_ids = [pa.user_id for pa in problem.assignments]
         form.students.data = assigned_student_ids
 
@@ -495,10 +470,18 @@ def assign_problem(problem_id):
 @login_required
 @instructor_required
 def problem_dashboard(problem_id):
+    
+    # --- THIS IS THE FIX ---
+    # We must tell SQLAlchemy the *path* to the relationships:
+    # CodingProblem -> assignments -> student
+    # CodingProblem -> assignments -> best_submission
     problem = CodingProblem.query.options(
-        joinedload(ProblemAssignment.student),
-        joinedload(ProblemAssignment.best_submission)
+        joinedload(CodingProblem.assignments).options(
+            joinedload(ProblemAssignment.student),
+            joinedload(ProblemAssignment.best_submission)
+        )
     ).get_or_404(problem_id)
+    # --- END FIX ---
     
     if problem.creator_id != current_user.id:
         abort(403)
@@ -521,7 +504,6 @@ def submission_callback():
     """
     API endpoint for the Lambda function to post results back.
     """
-    # Authenticate the request
     if not get_user_from_header():
         abort(403) 
     
@@ -535,13 +517,11 @@ def submission_callback():
             current_app.logger.warning(f"Callback received for unknown submission ID: {submission_id}")
             return jsonify({'status': 'error', 'message': 'Submission not found'}), 404
             
-        # Update submission
         submission.status = data['status']
         submission.score_achieved = data['score_achieved']
         submission.total_score = data['total_score']
         submission.execution_output = data['output']
         
-        # --- Update the user's best score ---
         assignment = ProblemAssignment.query.get((submission.user_id, submission.problem_id))
         if assignment:
             if submission.score_achieved > assignment.best_score:
@@ -558,6 +538,28 @@ def submission_callback():
         db.session.rollback()
         current_app.logger.error(f"Error in submission_callback: {e}\nData: {data}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# --- NEW FIX: API Route for Polling ---
+@main_bp.route('/api/submission_status/<int:submission_id>')
+@login_required
+def get_submission_status(submission_id):
+    """
+    API endpoint for the view_submission.html page to poll.
+    """
+    submission = CodeSubmission.query.get_or_404(submission_id)
+    
+    # Security check: Only the student who made it or the instructor can view
+    if current_user.is_student and submission.user_id != current_user.id:
+        abort(403)
+    if current_user.is_instructor and submission.problem.creator_id != current_user.id:
+        abort(403)
+
+    return jsonify({
+        'status': submission.status,
+        'output': submission.execution_output,
+        'score': submission.score_a_chieved
+    })
 
 # --- Auth Routes ---
 

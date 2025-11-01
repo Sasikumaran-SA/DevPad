@@ -4,6 +4,7 @@ from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy.ext.associationproxy import association_proxy
 from sqlalchemy.orm import joinedload
+from sqlalchemy import func, distinct # <-- Import func and distinct
 import datetime
 
 # --- Enums ---
@@ -116,7 +117,12 @@ class User(UserMixin, db.Model):
     @property
     def problems_attempted_count(self):
         """Count of distinct problems attempted."""
-        return self.submissions.group_by(CodeSubmission.problem_id).count()
+        # --- THIS IS THE FIX ---
+        # Old: return self.submissions.group_by(CodeSubmission.problem_id).count()
+        # New:
+        return db.session.query(db.func.count(db.distinct(CodeSubmission.problem_id)))\
+                         .filter_by(user_id=self.id)\
+                         .scalar() or 0
         
     def __repr__(self):
         return f'<User {self.username} ({self.role.value})>'
@@ -242,4 +248,3 @@ class CodeSubmission(db.Model):
 
     def __repr__(self):
         return f'<Submission {self.id} by {self.student.username}>'
-

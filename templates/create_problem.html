@@ -2,134 +2,247 @@
 
 {% block content %}
 <div class="w-full max-w-4xl mx-auto bg-white rounded-lg shadow-md p-8">
+    
+    {% if problem %}
+    <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Edit Coding Problem</h2>
+    {% else %}
     <h2 class="text-2xl font-bold text-center text-gray-800 mb-6">Create New Coding Problem</h2>
+    {% endif %}
     
     <form action="" method="post" novalidate id="problem-form">
         {{ form.hidden_tag() }}
         
+        <!-- Problem Details -->
         <div class="mb-4">
             {{ form.title.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-            {{ form.title(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", size=32) }}
-            {% for error in form.title.errors %}
-            <span class="text-red-500 text-xs italic">{{ error }}</span>
-            {% endfor %}
+            {{ form.title(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
+            {% for error in form.title.errors %}<span class="text-red-500 text-xs italic">{{ error }}</span>{% endfor %}
         </div>
         
         <div class="mb-6">
             {{ form.description.label(class="block text-gray-700 text-sm font-bold mb-2") }}
             {{ form.description(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=10) }}
-            {% for error in form.description.errors %}
-            <span class="text-red-500 text-xs italic">{{ error }}</span>
-            {% endfor %}
+            {% for error in form.description.errors %}<span class="text-red-500 text-xs italic">{{ error }}</span>{% endfor %}
         </div>
-        
-        <div class="mb-6">
-            {{ form.allowed_languages.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-            <div class="grid grid-cols-3 gap-2 p-4 border rounded-lg">
-                {% for subfield in form.allowed_languages %}
-                <div class="flex items-center">
-                    {{ subfield(class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500") }}
-                    {{ subfield.label(class="ml-2 text-gray-700") }}
-                </div>
-                {% endfor %}
+
+        <div class="mb-6 p-4 border rounded-lg bg-gray-50">
+            <div class="flex items-center">
+                {{ form.is_open(class="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500") }}
+                {{ form.is_open.label(class="ml-3 block text-gray-700 font-bold") }}
             </div>
-            {% for error in form.allowed_languages.errors %}
-            <span class="text-red-500 text-xs italic">{{ error }}</span>
-            {% endfor %}
+            <p class="text-xs text-gray-500 ml-7">If unchecked, students cannot submit new answers.</p>
         </div>
 
         <hr class="my-6">
 
-        <h3 class="text-xl font-semibold text-gray-700 mb-4">Test Cases</h3>
-        
-        <div id="test-case-list" class="space-y-6">
-            {% for test_case_form in form.test_cases %}
-                {{ test_case_form.hidden_tag() }}
-                <div class="p-4 border rounded-lg bg-gray-50 test-case-entry">
-                    <h4 class="font-bold text-gray-600 mb-2">Test Case {{ loop.index }}</h4>
+        <!-- Scoring -->
+        <h3 class="text-xl font-semibold text-gray-700 mb-4">Scoring</h3>
+        <div class="mb-4 p-4 border rounded-lg">
+            {{ form.scoring_type.label(class="block text-gray-700 text-sm font-bold mb-3") }}
+            <div class="space-y-2">
+                {% for subfield in form.scoring_type %}
+                <div class="flex items-center">
+                    {{ subfield(class="h-4 w-4 text-blue-600 border-gray-300 focus:ring-blue-500 scoring-type-radio") }}
+                    {{ subfield.label(class="ml-3 text-gray-700") }}
+                </div>
+                {% endfor %}
+            </div>
+            {% for error in form.scoring_type.errors %}<span class="text-red-500 text-xs italic">{{ error }}</span>{% endfor %}
+        </div>
+
+        <div class="mb-6" id="total-score-container">
+            {{ form.total_score.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+            {{ form.total_score(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", type="number") }}
+            <p class="text-xs text-gray-500 mt-1">This score will be divided equally among all private test cases.</p>
+            {% for error in form.total_score.errors %}<span class="text-red-500 text-xs italic">{{ error }}</span>{% endfor %}
+        </div>
+
+        <hr class="my-6">
+
+        <!-- Public Test Cases -->
+        <h3 class="text-xl font-semibold text-gray-700 mb-4">Public Test Cases</h3>
+        <p class="text-sm text-gray-600 mb-4">Visible to students. Used for basic validation, not for scoring.</p>
+        <div id="public-test-case-list" class="space-y-6">
+            {% for tc_form in form.public_test_cases %}
+                {{ tc_form.hidden_tag() }}
+                <div class="p-4 border rounded-lg bg-gray-50 relative test-case-entry">
+                    <h4 class="font-bold text-gray-600 mb-2">Public Test Case {{ loop.index }}</h4>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
-                            {{ test_case_form.public_input.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                            {{ test_case_form.public_input(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
+                            {{ tc_form.input_data.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                            {{ tc_form.input_data(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
                         </div>
                         <div>
-                            {{ test_case_form.public_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                            {{ test_case_form.public_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
-                        </div>
-                        <div>
-                            {{ test_case_form.hidden_input.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                            {{ test_case_form.hidden_input(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
-                        </div>
-                        <div>
-                            {{ test_case_form.hidden_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                            {{ test_case_form.hidden_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
+                            {{ tc_form.expected_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                            {{ tc_form.expected_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
                         </div>
                     </div>
+                    <button type="button" class="absolute top-2 right-2 text-red-500 hover:text-red-700 remove-test-case">&times;</button>
                 </div>
             {% endfor %}
         </div>
-        
-        <!-- Template for new test cases -->
-        <template id="test-case-template">
-            <div class="p-4 border rounded-lg bg-gray-50 test-case-entry">
-                {{ form.test_cases.append_entry().hidden_tag() }}
-                <h4 class="font-bold text-gray-600 mb-2">Test Case</h4>
+        <button type="button" id="add-public-test-case" class="mt-4 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg">
+            + Add Public Test Case
+        </button>
+
+        <hr class="my-8">
+
+        <!-- Private Test Cases -->
+        <h3 class="text-xl font-semibold text-gray-700 mb-4">Private Test Cases</h3>
+        <p class="text-sm text-gray-600 mb-4">Hidden from students. Used for actual scoring.</p>
+        <div id="private-test-case-list" class="space-y-6">
+            {% for tc_form in form.private_test_cases %}
+                {{ tc_form.hidden_tag() }}
+                <div class="p-4 border rounded-lg bg-blue-50 relative test-case-entry">
+                    <h4 class="font-bold text-gray-600 mb-2">Private Test Case {{ loop.index }}</h4>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            {{ tc_form.input_data.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                            {{ tc_form.input_data(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
+                            {% for error in tc_form.input_data.errors %}<span class="text-red-500 text-xs italic">{{ error }}</span>{% endfor %}
+                        </div>
+                        <div>
+                            {{ tc_form.expected_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                            {{ tc_form.expected_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
+                            {% for error in tc_form.expected_output.errors %}<span class="text-red-500 text-xs italic">{{ error }}</span>{% endfor %}
+                        </div>
+                    </div>
+                    <div class="mt-4 custom-score-field" style="display:none;">
+                        {{ tc_form.score.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                        {{ tc_form.score(class="shadow appearance-none border rounded-lg w-1/3 py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", type="number") }}
+                        {% for error in tc_form.score.errors %}<span class="text-red-500 text-xs italic">{{ error }}</span>{% endfor %}
+                    </div>
+                    <button type="button" class="absolute top-2 right-2 text-red-500 hover:text-red-700 remove-test-case">&times;</button>
+                </div>
+            {% endfor %}
+        </div>
+        <button type="button" id="add-private-test-case" class="mt-4 bg-blue-200 hover:bg-blue-300 text-blue-700 font-bold py-2 px-4 rounded-lg">
+            + Add Private Test Case
+        </button>
+
+        <!-- Templates for new test cases -->
+        <template id="public-test-case-template">
+            <div class="p-4 border rounded-lg bg-gray-50 relative test-case-entry">
+                {{ form.public_test_cases.append_entry().hidden_tag() | replace('__prefix__', 'NEW_ID') }}
+                <h4 class="font-bold text-gray-600 mb-2">Public Test Case</h4>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        {{ form.test_cases[0].public_input.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                        {{ form.test_cases[0].public_input(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
+                        {{ form.public_test_cases[0].input_data.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                        {{ form.public_test_cases[0].input_data(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
                     </div>
                     <div>
-                        {{ form.test_cases[0].public_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                        {{ form.test_cases[0].public_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
-                    </div>
-                    <div>
-                        {{ form.test_cases[0].hidden_input.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                        {{ form.test_cases[0].hidden_input(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
-                    </div>
-                    <div>
-                        {{ form.test_cases[0].hidden_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
-                        {{ form.test_cases[0].hidden_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500") }}
+                        {{ form.public_test_cases[0].expected_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                        {{ form.public_test_cases[0].expected_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
                     </div>
                 </div>
+                <button type="button" class="absolute top-2 right-2 text-red-500 hover:text-red-700 remove-test-case">&times;</button>
             </div>
         </template>
-
-        <button type="button" id="add-test-case" class="mt-4 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-2 px-4 rounded-lg">
-            + Add Another Test Case
-        </button>
+        
+        <template id="private-test-case-template">
+            <div class="p-4 border rounded-lg bg-blue-50 relative test-case-entry">
+                {{ form.private_test_cases.append_entry().hidden_tag() | replace('__prefix__', 'NEW_ID') }}
+                <h4 class="font-bold text-gray-600 mb-2">Private Test Case</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        {{ form.private_test_cases[0].input_data.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                        {{ form.private_test_cases[0].input_data(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
+                    </div>
+                    <div>
+                        {{ form.private_test_cases[0].expected_output.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                        {{ form.private_test_cases[0].expected_output(class="shadow appearance-none border rounded-lg w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", rows=3) }}
+                    </div>
+                </div>
+                <div class="mt-4 custom-score-field" style="display:none;">
+                    {{ form.private_test_cases[0].score.label(class="block text-gray-700 text-sm font-bold mb-2") }}
+                    {{ form.private_test_cases[0].score(class="shadow appearance-none border rounded-lg w-1/3 py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:ring-2 focus:ring-blue-500", type="number") }}
+                </div>
+                <button type="button" class="absolute top-2 right-2 text-red-500 hover:text-red-700 remove-test-case">&times;</button>
+            </div>
+        </template>
         
         <div class="flex items-center justify-center mt-8">
-            {{ form.submit(class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg focus:outline-none focus:shadow-outline cursor-pointer") }}
+            {{ form.submit(class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline cursor-pointer") }}
         </div>
     </form>
 </div>
 
 <script>
-document.getElementById('add-test-case').addEventListener('click', function() {
-    const template = document.getElementById('test-case-template');
-    const clone = template.content.cloneNode(true);
+document.addEventListener('DOMContentLoaded', function() {
     
-    // Find how many test cases we already have to set the new index
-    const count = document.querySelectorAll('.test-case-entry').length;
+    // --- Scoring Logic ---
+    const scoringRadios = document.querySelectorAll('.scoring-type-radio');
+    const totalScoreContainer = document.getElementById('total-score-container');
     
-    // Update labels and names/ids
-    clone.querySelector('h4').textContent = `Test Case ${count + 1}`;
-    
-    const fields = ['public_input', 'public_output', 'hidden_input', 'hidden_output', 'csrf_token'];
-    fields.forEach(field => {
-        const input = clone.querySelector(`[name$="${field}"]`);
-        if (input) {
-            input.name = `test_cases-${count}-${field}`;
-            input.id = `test_cases-${count}-${field}`;
+    function toggleScoringFields() {
+        const selected = document.querySelector('.scoring-type-radio:checked').value;
+        const customScoreFields = document.querySelectorAll('.custom-score-field');
+        
+        if (selected === '{{ ScoringType.EQUAL.value }}') {
+            totalScoreContainer.style.display = 'block';
+            customScoreFields.forEach(f => f.style.display = 'none');
+        } else {
+            totalScoreContainer.style.display = 'none';
+            customScoreFields.forEach(f => f.style.display = 'block');
         }
-        const label = clone.querySelector(`label[for$="${field}"]`);
-        if (label) {
-            label.htmlFor = `test_cases-${count}-${field}`;
-        }
-    });
+    }
     
-    document.getElementById('test-case-list').appendChild(clone);
+    scoringRadios.forEach(radio => radio.addEventListener('change', toggleScoringFields));
+    toggleScoringFields(); // Run on page load
+
+    // --- Dynamic Test Case Logic ---
+    
+    function setupTestCaseList(listId, buttonId, templateId) {
+        const list = document.getElementById(listId);
+        const template = document.getElementById(templateId);
+        
+        document.getElementById(buttonId).addEventListener('click', function() {
+            const count = list.querySelectorAll('.test-case-entry').length;
+            const cloneHtml = template.innerHTML.replace(/NEW_ID/g, count).replace(/__prefix__/g, count);
+            
+            const tempDiv = document.createElement('div');
+            tempDiv.innerHTML = cloneHtml;
+            const newEntry = tempDiv.firstElementChild;
+
+            list.appendChild(newEntry);
+            updateEntryNumbers(listId);
+            toggleScoringFields(); // Re-apply score field visibility
+        });
+
+        list.addEventListener('click', function(e) {
+            if (e.target.classList.contains('remove-test-case')) {
+                e.preventDefault();
+                const entry = e.target.closest('.test-case-entry');
+                entry.remove();
+                updateEntryNumbers(listId);
+            }
+        });
+    }
+
+    function updateEntryNumbers(listId) {
+        const list = document.getElementById(listId);
+        const entries = list.querySelectorAll('.test-case-entry');
+        const prefix = listId === 'public-test-case-list' ? 'public_test_cases' : 'private_test_cases';
+        const title = listId === 'public-test-case-list' ? 'Public Test Case' : 'Private Test Case';
+
+        entries.forEach((entry, index) => {
+            entry.querySelector('h4').textContent = `${title} ${index + 1}`;
+            
+            const inputs = entry.querySelectorAll('input, textarea');
+            inputs.forEach(input => {
+                const name = input.name;
+                if (name) {
+                    input.name = name.replace(new RegExp(`${prefix}-\\d+`), `${prefix}-${index}`);
+                    input.id = input.name;
+                }
+            });
+        });
+    }
+
+    setupTestCaseList('public-test-case-list', 'add-public-test-case', 'public-test-case-template');
+    setupTestCaseList('private-test-case-list', 'add-private-test-case', 'private-test-case-template');
+
 });
 </script>
 {% endblock %}
+
