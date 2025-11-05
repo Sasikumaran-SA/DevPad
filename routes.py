@@ -540,26 +540,55 @@ def submission_callback():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
-# --- NEW FIX: API Route for Polling ---
+# # --- NEW FIX: API Route for Polling ---
+# @main_bp.route('/api/submission_status/<int:submission_id>')
+# @login_required
+# def get_submission_status(submission_id):
+#     """
+#     API endpoint for the view_submission.html page to poll.
+#     """
+#     submission = CodeSubmission.query.get_or_404(submission_id)
+    
+#     # Security check: Only the student who made it or the instructor can view
+#     if current_user.is_student and submission.user_id != current_user.id:
+#         abort(403)
+#     if current_user.is_instructor and submission.problem.creator_id != current_user.id:
+#         abort(403)
+
+#     return jsonify({
+#         'status': submission.status,
+#         'output': submission.execution_output,
+#         'score': submission.score_a_chieved
+#     })
+
 @main_bp.route('/api/submission_status/<int:submission_id>')
-@login_required
+@login_required # Or your app's authentication
 def get_submission_status(submission_id):
     """
-    API endpoint for the view_submission.html page to poll.
+    API endpoint for the frontend to poll for submission results.
     """
-    submission = CodeSubmission.query.get_or_404(submission_id)
-    
-    # Security check: Only the student who made it or the instructor can view
-    if current_user.is_student and submission.user_id != current_user.id:
-        abort(403)
-    if current_user.is_instructor and submission.problem.creator_id != current_user.id:
-        abort(403)
-
-    return jsonify({
-        'status': submission.status,
-        'output': submission.execution_output,
-        'score': submission.score_a_chieved
-    })
+    try:
+        submission = CodeSubmission.query.get_or_404(submission_id)
+        
+        # Ensure the current user owns this submission
+        # Security check: Only the student who made it or the instructor can view
+        if submission.user_id != current_user.id:
+            return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
+        if current_user.is_student and submission.user_id != current_user.id:
+            return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
+        if current_user.is_instructor and submission.problem.creator_id != current_user.id:
+            return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
+            
+        return jsonify({
+            'submission_id': submission.id,
+            'status': submission.status, # e.g., "Pending", "Passed", "Failed"
+            'output': submission.output,
+            'score_achieved': submission.score_achieved,
+            'total_score': submission.total_score
+        })
+            
+    except Exception as e:
+        return jsonify({'status': 'Error', 'output': str(e)}), 500
 
 # --- Auth Routes ---
 

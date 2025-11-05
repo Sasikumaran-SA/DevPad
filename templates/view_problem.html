@@ -117,14 +117,30 @@
             <div id="editor" class="w-full h-96 border rounded-lg"></div>
             <!-- Hidden textarea to hold the code for the form -->
             {{ form.code(class="hidden", id="code") }}
+
             
+            <!-- Add this below your code editor -->
+            <div class_ ="mt-4">
+                <h3 class="text-lg font-semibold mb-2">Output</h3>
+                <!-- 
+                'output-terminal' is where the JS will write the results.
+                'output-pending' is a loading message we will show/hide.
+                -->
+                <div id="output-pending" class="p-4 bg-gray-700 rounded-md text-gray-300" style="display: none;">
+                    <p>Running your code... Please wait.</p>
+                </div>
+                <pre id="output-terminal" class="p-4 bg-gray-800 rounded-md text-white min-h-[150px] whitespace-pre-wrap"></pre>
+            </div>
+
+
             {% for error in form.code.errors %}
             <span class="text-red-500 text-xs italic">{{ error }}</span>
             {% endfor %}
             
             <div class="flex items-center justify-center mt-6">
                 {% if problem.is_open %}
-                    {{ form.submit(class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline cursor-pointer") }}
+                    <!-- MODIFICATION: Added id="run-code-button" so JavaScript can disable/enable it -->
+                    {{ form.submit(id="run-code-button", class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg focus:outline-none focus:shadow-outline cursor-pointer") }}
                 {% else %}
                     <span class="bg-gray-300 text-gray-500 font-bold py-3 px-6 rounded-lg">Submissions Closed</span>
                 {% endif %}
@@ -140,18 +156,120 @@
     editor.session.setMode("ace/mode/python");
     editor.setFontSize(14);
     
-    // Sync editor content with hidden textarea on change
+    // --- Get references to all our DOM elements ---
     const codeTextarea = document.getElementById('code');
+    const form = document.getElementById('submission-form');
+    const outputTerminal = document.getElementById('output-terminal');
+    const outputPending = document.getElementById('output-pending');
+    const runButton = document.getElementById('run-code-button');
+    // Get problem ID from Jinja, to be used in API calls
+    const problemId = '{{ problem.id }}'; 
+
+    // Sync editor content with hidden textarea on change
     editor.session.on('change', function() {
         codeTextarea.value = editor.getValue();
     });
 
-    // --- Sync form submit ---
-    const form = document.getElementById('submission-form');
-    form.addEventListener('submit', function() {
+    // --- MODIFICATION: Hijack the form submit event for dynamic polling ---
+    form.addEventListener('submit', function(event) {
+        // Stop the default full-page refresh
+        event.preventDefault(); 
+        
+        // Sync the editor (in case of no 'change' event)
         codeTextarea.value = editor.getValue();
+        
+        // Call our new async function to run the code
+        runCode();
     });
+
+    // 1C: New function to POST the code
+    async function runCode() {
+        // Show loading message, clear old output, disable button
+        outputPending.style.display = 'block';
+        outputTerminal.textContent = '';
+        if (runButton) runButton.disabled = true;
+
+        try {
+            const code = editor.getValue();
+            // Get language from the selected radio button
+            const language = document.querySelector('input[name="language"]:checked').value;
+            // Get the CSRF token from the hidden form field
+            const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+
+            // This fetch assumes you have a NEW API endpoint at this URL
+            // This route should return a JSON response like: { "submission_id": 123 }
+            const response = await fetch(`/api/run_code/${problemId}`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrfToken // Include CSRF token for Flask
+                },
+                body: JSON.stringify({ 
+                    code: code,
+                    language: language 
+                })
+            });
+            
+            const data = await response.json();
+
+            if (!response.ok) {
+                // Handle errors from the server (e.g., validation)
+                throw new Error(data.error || 'Code submission failed.');
+            }
+            
+            if (data.submission_id) {
+                // SUCCESS! Now, start polling for the result.
+                pollForResult(data.submission_id);
+            } else {
+                throw new Error(data.error || 'Invalid response from server.');
+            }
+            
+        } catch (error) {
+            // Handle errors from the *initial* submission (e.g., network error)
+            outputTerminal.textContent = `Error: ${error.message}`;
+            outputPending.style.display = 'none';
+            if (runButton) runButton.disabled = false;
+        }
+    }
+
+    // 1C: New polling function to check for results
+    async function pollForResult(submissionId) {
+        try {
+            // This fetch assumes you have a NEW API endpoint at this URL
+            // This route returns the submission status and output
+            const response = await fetch(`/api/submission_status/${submissionId}`);
+            if (!response.ok) {
+                throw new Error('Failed to get submission status.');
+            }
+            
+            const result = await response.json();
+            
+            if (result.status === 'Pending' || result.status === 'Running') {
+                // Still running. Wait 2 seconds and poll again.
+                setTimeout(() => pollForResult(submissionId), 2000);
+            } else {
+                // IT'S DONE! Show the results.
+                // This output will now be formatted by your updated Lambda function
+                outputTerminal.textContent = result.output || 'Execution finished with no output.';
+                
+                // Add the summary score
+                if (result.status === 'Passed' || result.status === 'Failed') {
+                    outputTerminal.textContent += `\n\n--- Summary ---
+Status: ${result.status}
+Score: ${result.score_achieved} / ${result.total_score}`;
+                }
+
+                // Hide loading, re-enable button
+                outputPending.style.display = 'none';
+                if (runButton) runButton.disabled = false;
+            }
+        } catch (error) {
+            // Handle polling errors
+            outputTerminal.textContent = `Error checking status: ${error.message}`;
+            outputPending.style.display = 'none';
+            if (runButton) runButton.disabled = false;
+        }
+    }
 
 </script>
 {% endblock %}
-
