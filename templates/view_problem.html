@@ -119,7 +119,22 @@
             {{ form.code(class="hidden", id="code") }}
 
             
-
+            <!-- 
+                START OF FIX:
+                This HTML block was missing. The JavaScript in your <script> block
+                is looking for 'output-pending' and 'output-terminal' but can't find them,
+                which caused the '...reading properties of null...' error.
+            -->
+            <div class="mt-4">
+                <h3 class="text-lg font-semibold mb-2 text-gray-700">Output</h3>
+                <!-- The JS is looking for this ID -->
+                <div id="output-pending" class="p-4 bg-gray-700 rounded-md text-gray-300" style="display: none;">
+                    <p>Running your code... Please wait.</p>
+                </div>
+                <!-- The JS is also looking for this ID -->
+                <pre id="output-terminal" class="p-4 bg-gray-800 rounded-md text-white min-h-[150px] whitespace-pre-wrap"></pre>
+            </div>
+            <!-- END OF FIX -->
 
             {% for error in form.code.errors %}
             <span class="text-red-500 text-xs italic">{{ error }}</span>
