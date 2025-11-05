@@ -216,7 +216,7 @@ def view_problem(problem_id):
         try:
             # --- FIX IS HERE ---
             # Create the client *inside* the route, not globally.
-            lambda_client = boto3.client('lambda') 
+            lambda_client = boto3.client('lambda', region_name=current_app.config.get('AWS_REGION'))
             
             lambda_client.invoke(
                 FunctionName=current_app.config.get('EXECUTION_LAMBDA_NAME'),
