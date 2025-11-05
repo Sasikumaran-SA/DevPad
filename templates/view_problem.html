@@ -119,18 +119,6 @@
             {{ form.code(class="hidden", id="code") }}
 
             
-            <!-- Add this below your code editor -->
-            <div class_ ="mt-4">
-                <h3 class="text-lg font-semibold mb-2">Output</h3>
-                <!-- 
-                'output-terminal' is where the JS will write the results.
-                'output-pending' is a loading message we will show/hide.
-                -->
-                <div id="output-pending" class="p-4 bg-gray-700 rounded-md text-gray-300" style="display: none;">
-                    <p>Running your code... Please wait.</p>
-                </div>
-                <pre id="output-terminal" class="p-4 bg-gray-800 rounded-md text-white min-h-[150px] whitespace-pre-wrap"></pre>
-            </div>
 
 
             {% for error in form.code.errors %}
