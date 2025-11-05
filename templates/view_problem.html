@@ -201,7 +201,7 @@
 
             // This fetch assumes you have a NEW API endpoint at this URL
             // This route should return a JSON response like: { "submission_id": 123 }
-            const response = await fetch(`/api/run_code/${problemId}`, {
+            const response = await fetch(`/api/submission_status/${problemId}`, {                               //
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',

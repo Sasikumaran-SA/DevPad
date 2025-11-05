@@ -153,10 +153,111 @@ def student_dashboard():
     
     return render_template('student_dashboard.html', title='My Dashboard', user=current_user, assignments=assignments)
 
-@main_bp.route('/problem/<int:problem_id>', methods=['GET', 'POST'])
+# @main_bp.route('/problem/<int:problem_id>', methods=['GET', 'POST'])
+# @login_required
+# @student_required
+# def view_problem(problem_id):
+#     problem = CodingProblem.query.get_or_404(problem_id)
+#     assignment = current_user.get_assignment(problem_id)
+    
+#     if not assignment:
+#         flash('You are not assigned this problem.', 'danger')
+#         return redirect(url_for('main.student_dashboard'))
+
+#     form = SubmissionForm()
+    
+#     if form.validate_on_submit():
+#         if not problem.is_open:
+#             flash('This problem is no longer accepting submissions.', 'warning')
+#             return redirect(url_for('main.view_problem', problem_id=problem_id))
+
+#         submission = CodeSubmission(
+#             student=current_user,
+#             problem=problem,
+#             language=form.language.data,
+#             code=form.code.data,
+#             status='Pending'
+#         )
+#         db.session.add(submission)
+#         db.session.commit() # Commit to get a submission.id
+
+#         # --- Prepare Lambda Payload ---
+#         private_test_cases = problem.private_test_cases
+#         total_possible_score = 0
+        
+#         if problem.scoring_type == ScoringType.EQUAL:
+#             num_private = len(private_test_cases)
+#             score_per_case = (problem.total_score / num_private) if num_private > 0 else 0
+#             total_possible_score = problem.total_score
+            
+#             for tc in private_test_cases:
+#                 tc.score = score_per_case 
+#         else:
+#             total_possible_score = sum(tc.score for tc in private_test_cases)
+
+#         all_test_cases = [
+#             {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': True, 'score': 0}
+#             for tc in problem.public_test_cases
+#         ] + [
+#             {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': False, 'score': tc.score}
+#             for tc in private_test_cases
+#         ]
+        
+#         payload = {
+#             'submission_id': submission.id,
+#             'language': submission.language,
+#             'code': submission.code,
+#             'test_cases': all_test_cases,
+#             'total_score': total_possible_score, 
+#             'callback_url': url_for('main.submission_callback', _external=True),
+#             'api_key': current_app.config.get('EXECUTION_API_KEY')
+#         }
+        
+#         try:
+#             # --- FIX IS HERE ---
+#             # Create the client *inside* the route, not globally.
+#             lambda_client = boto3.client('lambda', region_name=current_app.config.get('AWS_REGION'))
+            
+#             lambda_client.invoke(
+#                 FunctionName=current_app.config.get('EXECUTION_LAMBDA_NAME'),
+#                 InvocationType='Event', # Asynchronous
+#                 Payload=json.dumps(payload)
+#             )
+#             flash('Your code has been submitted and is running!', 'info')
+#         except Exception as e:
+#             current_app.logger.error(f"Lambda invocation failed: {e}")
+#             submission.status = 'Error'
+#             submission.execution_output = f'Failed to start execution: {e}'
+#             db.session.commit()
+#             flash('There was an error submitting your code.', 'danger')
+
+#         return redirect(url_for('main.view_problem', problem_id=problem_id))
+
+#     # --- GET Request ---
+#     submissions = CodeSubmission.query.filter_by(
+#         user_id=current_user.id, 
+#         problem_id=problem_id
+#     ).order_by(CodeSubmission.timestamp.desc()).all()
+    
+#     best_submission = assignment.best_submission
+
+#     return render_template(
+#         'view_problem.html', 
+#         title=problem.title, 
+#         problem=problem, 
+#         form=form,
+#         submissions=submissions,
+#         best_submission=best_submission,
+#         assignment=assignment
+#     )
+
+@main_bp.route('/problem/<int:problem_id>', methods=['GET']) # MODIFICATION: Removed POST
 @login_required
 @student_required
 def view_problem(problem_id):
+    # This route now ONLY handles GET requests to display the page.
+    # The POST logic has been moved to /api/run_code
+    
     problem = CodingProblem.query.get_or_404(problem_id)
     assignment = current_user.get_assignment(problem_id)
     
@@ -166,73 +267,6 @@ def view_problem(problem_id):
 
     form = SubmissionForm()
     
-    if form.validate_on_submit():
-        if not problem.is_open:
-            flash('This problem is no longer accepting submissions.', 'warning')
-            return redirect(url_for('main.view_problem', problem_id=problem_id))
-
-        submission = CodeSubmission(
-            student=current_user,
-            problem=problem,
-            language=form.language.data,
-            code=form.code.data,
-            status='Pending'
-        )
-        db.session.add(submission)
-        db.session.commit() # Commit to get a submission.id
-
-        # --- Prepare Lambda Payload ---
-        private_test_cases = problem.private_test_cases
-        total_possible_score = 0
-        
-        if problem.scoring_type == ScoringType.EQUAL:
-            num_private = len(private_test_cases)
-            score_per_case = (problem.total_score / num_private) if num_private > 0 else 0
-            total_possible_score = problem.total_score
-            
-            for tc in private_test_cases:
-                tc.score = score_per_case 
-        else:
-            total_possible_score = sum(tc.score for tc in private_test_cases)
-
-        all_test_cases = [
-            {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': True, 'score': 0}
-            for tc in problem.public_test_cases
-        ] + [
-            {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': False, 'score': tc.score}
-            for tc in private_test_cases
-        ]
-        
-        payload = {
-            'submission_id': submission.id,
-            'language': submission.language,
-            'code': submission.code,
-            'test_cases': all_test_cases,
-            'total_score': total_possible_score, 
-            'callback_url': url_for('main.submission_callback', _external=True),
-            'api_key': current_app.config.get('EXECUTION_API_KEY')
-        }
-        
-        try:
-            # --- FIX IS HERE ---
-            # Create the client *inside* the route, not globally.
-            lambda_client = boto3.client('lambda', region_name=current_app.config.get('AWS_REGION'))
-            
-            lambda_client.invoke(
-                FunctionName=current_app.config.get('EXECUTION_LAMBDA_NAME'),
-                InvocationType='Event', # Asynchronous
-                Payload=json.dumps(payload)
-            )
-            flash('Your code has been submitted and is running!', 'info')
-        except Exception as e:
-            current_app.logger.error(f"Lambda invocation failed: {e}")
-            submission.status = 'Error'
-            submission.execution_output = f'Failed to start execution: {e}'
-            db.session.commit()
-            flash('There was an error submitting your code.', 'danger')
-
-        return redirect(url_for('main.view_problem', problem_id=problem_id))
-
     # --- GET Request ---
     submissions = CodeSubmission.query.filter_by(
         user_id=current_user.id, 
@@ -499,6 +533,97 @@ def problem_dashboard(problem_id):
 
 # --- API Routes ---
 
+# --- NEW API ROUTE (Solution 1A) ---
+@main_bp.route('/api/run_code/<int:problem_id>', methods=['POST'])
+@login_required
+@student_required
+def api_run_code(problem_id):
+    """
+    API endpoint for the frontend to submit code for execution.
+    This logic was moved from the original view_problem POST handler.
+    """
+    problem = CodingProblem.query.get_or_404(problem_id)
+    assignment = current_user.get_assignment(problem_id)
+    
+    if not assignment:
+        return jsonify({'error': 'You are not assigned this problem.'}), 403
+        
+    if not problem.is_open:
+        return jsonify({'error': 'This problem is no longer accepting submissions.'}), 400
+
+    data = request.json
+    code = data.get('code')
+    language = data.get('language')
+
+    if not code or not language:
+        return jsonify({'error': 'Missing code or language.'}), 400
+
+    submission = CodeSubmission(
+        student=current_user,
+        problem=problem,
+        language=language,
+        code=code,
+        status='Pending'
+    )
+    db.session.add(submission)
+    db.session.commit() # Commit to get a submission.id
+
+    # --- Prepare Lambda Payload ---
+    private_test_cases = problem.private_test_cases
+    total_possible_score = 0
+    
+    if problem.scoring_type == ScoringType.EQUAL:
+        num_private = len(private_test_cases)
+        score_per_case = (problem.total_score / num_private) if num_private > 0 else 0
+        total_possible_score = problem.total_score
+        
+        # We need to *assign* the score to the test case object for the payload
+        test_cases_payload = []
+        for tc in private_test_cases:
+            test_cases_payload.append({
+                'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': False, 'score': score_per_case
+            })
+    else:
+        total_possible_score = sum(tc.score for tc in private_test_cases)
+        test_cases_payload = [
+            {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': False, 'score': tc.score}
+            for tc in private_test_cases
+        ]
+
+    all_test_cases = [
+        {'id': tc.id, 'input': tc.input_data, 'output': tc.expected_output, 'is_public': True, 'score': 0}
+        for tc in problem.public_test_cases
+    ] + test_cases_payload
+    
+    payload = {
+        'submission_id': submission.id,
+        'language': submission.language,
+        'code': submission.code,
+        'test_cases': all_test_cases,
+        'total_score': total_possible_score, 
+        'callback_url': url_for('main.submission_callback', _external=True),
+        'api_key': current_app.config.get('EXECUTION_API_KEY')
+    }
+    
+    try:
+        # Create the client *inside* the route
+        lambda_client = boto3.client('lambda', region_name=current_app.config.get('AWS_REGION'))
+        
+        lambda_client.invoke(
+            FunctionName=current_app.config.get('EXECUTION_LAMBDA_NAME'),
+            InvocationType='Event', # Asynchronous
+            Payload=json.dumps(payload)
+        )
+        # On success, return the submission ID for polling
+        return jsonify({'submission_id': submission.id}), 202 # 202 Accepted
+        
+    except Exception as e:
+        current_app.logger.error(f"Lambda invocation failed: {e}")
+        submission.status = 'Error'
+        submission.execution_output = f'Failed to start execution: {e}'
+        db.session.commit()
+        return jsonify({'error': 'There was an error submitting your code.'}), 500
+
 @main_bp.route('/api/submission_callback', methods=['POST'])
 def submission_callback():
     """
@@ -561,8 +686,39 @@ def submission_callback():
 #         'score': submission.score_a_chieved
 #     })
 
+# @main_bp.route('/api/submission_status/<int:submission_id>')
+# @login_required # Or your app's authentication
+# def get_submission_status(submission_id):
+#     """
+#     API endpoint for the frontend to poll for submission results.
+#     """
+#     try:
+#         submission = CodeSubmission.query.get_or_404(submission_id)
+        
+#         # Ensure the current user owns this submission
+#         # Security check: Only the student who made it or the instructor can view
+#         if submission.user_id != current_user.id:
+#             return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
+#         if current_user.is_student and submission.user_id != current_user.id:
+#             return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
+#         if current_user.is_instructor and submission.problem.creator_id != current_user.id:
+#             return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
+            
+#         return jsonify({
+#             'submission_id': submission.id,
+#             'status': submission.status, # e.g., "Pending", "Passed", "Failed"
+#             'output': submission.output,
+#             'score_achieved': submission.score_achieved,
+#             'total_score': submission.total_score
+#         })
+            
+#     except Exception as e:
+#         return jsonify({'status': 'Error', 'output': str(e)}), 500
+
+# --- NEW FIX: API Route for Polling ---
+# This route was already in your file and is correct.
 @main_bp.route('/api/submission_status/<int:submission_id>')
-@login_required # Or your app's authentication
+@login_required
 def get_submission_status(submission_id):
     """
     API endpoint for the frontend to poll for submission results.
@@ -570,10 +726,7 @@ def get_submission_status(submission_id):
     try:
         submission = CodeSubmission.query.get_or_404(submission_id)
         
-        # Ensure the current user owns this submission
         # Security check: Only the student who made it or the instructor can view
-        if submission.user_id != current_user.id:
-            return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
         if current_user.is_student and submission.user_id != current_user.id:
             return jsonify({'status': 'Error', 'output': 'Unauthorized'}), 403
         if current_user.is_instructor and submission.problem.creator_id != current_user.id:
@@ -582,7 +735,7 @@ def get_submission_status(submission_id):
         return jsonify({
             'submission_id': submission.id,
             'status': submission.status, # e.g., "Pending", "Passed", "Failed"
-            'output': submission.output,
+            'output': submission.execution_output, # Changed from submission.output
             'score_achieved': submission.score_achieved,
             'total_score': submission.total_score
         })
